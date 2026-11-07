@@ -5,7 +5,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: ls -la
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -14,9 +13,9 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
       - run: npm install
-      - run: npx expo prebuild --platform android --clean
-      - run: cd android && ./gradlew assembleDebug
+      - run: npx expo prebuild --platform android
+      - run: cd android && ./gradlew assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: app-release
+          path: android/app/build/outputs/apk/release/app-release.apk
