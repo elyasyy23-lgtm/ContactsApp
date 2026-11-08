@@ -1,3 +1,4 @@
+
 name: Build APK
 on: [push]
 jobs:
@@ -14,7 +15,14 @@ jobs:
           java-version: '21'
       - run: npm install --no-package-lock
       - run: npx expo prebuild --platform android
-      - run: cd android && sed -i 's/gradle-9.4.1-bin.zip/gradle-8.9-bin.zip/' gradle/wrapper/gradle-wrapper.properties && ./gradlew assembleDebug
+      - name: Download Gradle manually
+        run: |
+          cd android
+          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O gradle.zip
+          mkdir -p /home/runner/.gradle/wrapper/dists/gradle-8.9-bin
+          unzip -q gradle.zip -d /home/runner/.gradle/wrapper/dists/gradle-8.9-bin/
+          sed -i 's/gradle-9.4.1-bin.zip/gradle-8.9-bin.zip/' gradle/wrapper/gradle-wrapper.properties
+      - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug
