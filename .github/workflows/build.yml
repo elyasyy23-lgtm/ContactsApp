@@ -23,12 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Expo SDK 58 requires Node ^22.13 (see "engines" in package.json deps).
+      # Expo SDK 58 requires Node ^22.13 (see "engines" of expo / react-native).
+      # NOTE: no `cache: npm` here — that option (and `npm ci`) needs a lockfile
+      # committed to the repo, and this project does not have one.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       # Gradle 9.4.1 (used by the Expo SDK 58 template) needs JDK 17+.
       - name: Set up JDK 21
@@ -40,17 +41,19 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      # Lockfile-driven install: reproducible, and it always produces a complete node_modules.
+      # No lockfile in the repo → plain `npm install` (never `npm ci`).
+      # The fallback covers npm ERESOLVE peer conflicts that a lockfile would normally pin away.
       - name: Install JS dependencies
-        run: npm ci
+        run: |
+          npm install --no-audit --no-fund \
+            || npm install --no-audit --no-fund --legacy-peer-deps
 
-      # android/ is gitignored, so it is regenerated from the Expo template on every run.
-      # This template ships Gradle 9.4.1 + the react {} block; do not override either.
+      # android/ is gitignored, so it is regenerated from the Expo template each run.
+      # The template ships Gradle 9.4.1 + the react {} block; do not override either.
       - name: Generate native Android project
         run: npx expo prebuild --platform android --clean --no-install
 
-      # Fails fast with a readable message instead of Gradle's "Cannot convert '' to File"
-      # when node is missing/broken or node_modules is incomplete.
+      # Fails fast with a readable message instead of Gradle's "Cannot convert '' to File".
       - name: Verify node can resolve the app entry
         run: |
           node -v
