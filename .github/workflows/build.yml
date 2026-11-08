@@ -21,6 +21,7 @@ jobs:
           mkdir -p /home/runner/.gradle/wrapper/dists/gradle-8.9-bin
           unzip -q gradle.zip -d /home/runner/.gradle/wrapper/dists/gradle-8.9-bin/
           echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" > gradle/wrapper/gradle-wrapper.properties
+          echo "systemProp.maven.repo.local=https://maven.myket.ir" >> gradle.properties
       - run: cd android && ./gradlew assembleRelease
       - uses: actions/upload-artifact@v4
         with:
