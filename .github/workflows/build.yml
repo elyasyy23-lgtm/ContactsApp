@@ -22,7 +22,7 @@ jobs:
           unzip -q gradle.zip -d /home/runner/.gradle/wrapper/dists/gradle-9.4.1-bin/
           touch /home/runner/.gradle/wrapper/dists/gradle-9.4.1-bin/gradle-9.4.1-bin.zip.ok
           echo "distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip" > gradle/wrapper/gradle-wrapper.properties
-      - name: Add Aliyun Mirror
+      - name: Setup Maven Mirror
         run: |
           echo "systemProp.maven.repo.local=https://maven.aliyun.com/repository/public" >> gradle.properties
           echo "systemProp.google.repo.local=https://maven.aliyun.com/repository/google" >> gradle.properties
