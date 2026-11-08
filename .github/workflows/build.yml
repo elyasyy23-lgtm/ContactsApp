@@ -13,6 +13,8 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
       - run: npm install --no-package-lock
+      - name: Clean android directory
+        run: rm -rf android
       - run: npx expo prebuild --platform android
       - name: Download Gradle manually
         run: |
