@@ -22,11 +22,10 @@ jobs:
           unzip -q gradle.zip -d /home/runner/.gradle/wrapper/dists/gradle-9.4.1-bin/
           touch /home/runner/.gradle/wrapper/dists/gradle-9.4.1-bin/gradle-9.4.1-bin.zip.ok
           echo "distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip" > gradle/wrapper/gradle-wrapper.properties
-      - name: Replace Google Repos with Aliyun
+      - name: Add Aliyun Mirror
         run: |
-          cd android
-          sed -i 's|https://dl.google.com/dl/android/maven2|https://maven.aliyun.com/repository/google|g' build.gradle
-          sed -i 's|https://repo.maven.apache.org/maven2|https://maven.aliyun.com/repository/public|g' build.gradle
+          echo "systemProp.maven.repo.local=https://maven.aliyun.com/repository/public" >> gradle.properties
+          echo "systemProp.google.repo.local=https://maven.aliyun.com/repository/google" >> gradle.properties
       - run: cd android && ./gradlew assembleRelease
       - uses: actions/upload-artifact@v4
         with:
