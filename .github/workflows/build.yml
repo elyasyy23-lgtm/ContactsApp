@@ -1,35 +1,78 @@
 name: Build APK
-on: [push]
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_TELEMETRY: 1
+
 jobs:
   build:
+    name: Build release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      # Expo SDK 58 requires Node ^22.13 (see "engines" in package.json deps).
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: actions/setup-java@v5
+          cache: npm
+
+      # Gradle 9.4.1 (used by the Expo SDK 58 template) needs JDK 17+.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
-      - run: npm install --no-package-lock
-      - name: Clean android directory
-        run: rm -rf android
-      - run: npx expo prebuild --platform android
-      - name: Download Gradle manually
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      # Lockfile-driven install: reproducible, and it always produces a complete node_modules.
+      - name: Install JS dependencies
+        run: npm ci
+
+      # android/ is gitignored, so it is regenerated from the Expo template on every run.
+      # This template ships Gradle 9.4.1 + the react {} block; do not override either.
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --clean --no-install
+
+      # Fails fast with a readable message instead of Gradle's "Cannot convert '' to File"
+      # when node is missing/broken or node_modules is incomplete.
+      - name: Verify node can resolve the app entry
         run: |
-          cd android
-          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O gradle.zip
-          mkdir -p /home/runner/.gradle/wrapper/dists/gradle-8.9-bin
-          unzip -q gradle.zip -d /home/runner/.gradle/wrapper/dists/gradle-8.9-bin/
-          touch /home/runner/.gradle/wrapper/dists/gradle-8.9-bin/gradle-8.9-bin.zip.ok
-          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" > gradle/wrapper/gradle-wrapper.properties
-      - name: Setup Maven Mirror
+          node -v
+          node -e "require('expo/scripts/resolveAppEntry')" "$GITHUB_WORKSPACE" android absolute
+
+      - name: Build release APK
+        working-directory: android
         run: |
-          echo "systemProp.maven.repo.local=https://maven.aliyun.com/repository/public" >> gradle.properties
-          echo "systemProp.google.repo.local=https://maven.aliyun.com/repository/google" >> gradle.properties
-      - run: cd android && ./gradlew assembleRelease
+          chmod +x gradlew
+          ./gradlew --version
+          ./gradlew assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+            --no-daemon --stacktrace
+
+      - name: Show APK info
+        run: |
+          ls -lh android/app/build/outputs/apk/release/
+          sha256sum android/app/build/outputs/apk/release/app-release.apk
+
       - uses: actions/upload-artifact@v4
         with:
-          name: app-release
+          name: contactsapp-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
