@@ -52,8 +52,15 @@ favicon, android-icon-{background,foreground,monochrome}).
 - `/storage/emulated/0` is **not writable** on this device (no `termux-setup-storage`
   grant yet) — `mkdir` there fails with "Permission denied". Grant it with
   `termux-setup-storage` if a shared-storage copy is ever needed.
-- Consequence: pushing via `git` (needs a GitHub token) is the only practical way
-  to get the source onto GitHub from this phone.
+- Consequence: pushing via `git` needs credentials. **The user's GitHub email is locked, so
+  they cannot create a PAT** — use SSH instead: key `~/.ssh/id_ed25519` was generated on
+  2026-11-08 (fingerprint `SHA256:erxMmACvMnNGnCAvNXutNWXKDeICqW20LNJVfjsQbG8`).
+  Status 2026-11-08: user said the key was added, but `ssh -T git@github.com` returns
+  `Permission denied (publickey)` — GitHub reached, key offered, not accepted ⇒ the key is
+  not attached to the `elyasyy23-lgtm` account (wrong account, added as a *signing* key, or
+  truncated paste). Verify the fingerprint on https://github.com/settings/keys.
+  `gh` CLI 2.103.3 is now installed (`gh auth login` = OAuth device flow, no token page).
+  Once authenticated: `gh auth setup-git && git push -u origin main`.
 
 ## CI — APK build (GitHub Actions)
 
