@@ -59,14 +59,36 @@ jobs:
           node -v
           node -e "require('expo/scripts/resolveAppEntry')" "$GITHUB_WORKSPACE" android absolute
 
+      # services.gradle.org occasionally stalls on the shared runners; a 10s default
+      # read timeout aborts the whole build. Give the wrapper room and retry.
+      - name: Harden Gradle wrapper network
+        working-directory: android
+        run: |
+          f=gradle/wrapper/gradle-wrapper.properties
+          grep -q '^networkTimeout=' "$f" || echo 'networkTimeout=180000' >> "$f"
+          cat "$f"
+
       - name: Build release APK
         working-directory: android
+        shell: bash
         run: |
           chmod +x gradlew
           ./gradlew --version
-          ./gradlew assembleRelease \
-            -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
-            --no-daemon --stacktrace
+          for attempt in 1 2 3; do
+            echo "::group::assembleRelease attempt $attempt"
+            if ./gradlew assembleRelease \
+                 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+                 --no-daemon --stacktrace; then
+              echo "::endgroup::"
+              break
+            fi
+            echo "::endgroup::"
+            if [ "$attempt" = "3" ]; then
+              echo "::error::assembleRelease failed after 3 attempts"
+              exit 1
+            fi
+            sleep 20
+          done
 
       - name: Show APK info
         run: |
