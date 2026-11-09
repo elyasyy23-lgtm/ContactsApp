@@ -13,6 +13,11 @@ concurrency:
 
 env:
   EXPO_NO_TELEMETRY: 1
+  # Shared runners occasionally get 5xx from Maven Central / GitHub release CDN.
+  # Gradle only retries 3x by default with a 1s backoff — widen both.
+  GRADLE_OPTS: >-
+    -Dorg.gradle.internal.repository.max.retries=12
+    -Dorg.gradle.internal.repository.initial.backoff=2000
 
 jobs:
   build:
@@ -89,20 +94,22 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --version || true
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4; do
             echo "::group::assembleRelease attempt $attempt"
             if ./gradlew assembleRelease \
                  -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+                 -Dorg.gradle.internal.repository.max.retries=12 \
+                 -Dorg.gradle.internal.repository.initial.backoff=2000 \
                  --no-daemon --stacktrace; then
               echo "::endgroup::"
               break
             fi
             echo "::endgroup::"
-            if [ "$attempt" = "3" ]; then
-              echo "::error::assembleRelease failed after 3 attempts"
+            if [ "$attempt" = "4" ]; then
+              echo "::error::assembleRelease failed after 4 attempts"
               exit 1
             fi
-            sleep 20
+            sleep 30
           done
 
       - name: Show APK info
