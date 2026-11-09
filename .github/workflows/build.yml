@@ -59,13 +59,28 @@ jobs:
           node -v
           node -e "require('expo/scripts/resolveAppEntry')" "$GITHUB_WORKSPACE" android absolute
 
-      # services.gradle.org occasionally stalls on the shared runners; a 10s default
-      # read timeout aborts the whole build. Give the wrapper room and retry.
-      - name: Harden Gradle wrapper network
+      # services.gradle.org stalls on shared runners and the wrapper's hard-coded
+      # 10s read timeout kills the build before any retry can help. Fetch the
+      # distribution ourselves with curl retries, then point the wrapper at the
+      # local file so Gradle never touches the network for it.
+      - name: Pre-download Gradle distribution
+        shell: bash
+        run: |
+          url=$(grep -m1 '^distributionUrl=' android/gradle/wrapper/gradle-wrapper.properties \
+                | sed 's/^distributionUrl=//; s/\\//g')
+          echo "distribution: $url"
+          curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+               --connect-timeout 20 --max-time 900 \
+               -o "$RUNNER_TEMP/gradle-dist.zip" "$url"
+          ls -lh "$RUNNER_TEMP/gradle-dist.zip"
+          echo "GRADLE_LOCAL_ZIP=$RUNNER_TEMP/gradle-dist.zip" >> "$GITHUB_ENV"
+
+      - name: Point wrapper at the local distribution
         working-directory: android
+        shell: bash
         run: |
           f=gradle/wrapper/gradle-wrapper.properties
-          grep -q '^networkTimeout=' "$f" || echo 'networkTimeout=180000' >> "$f"
+          sed -i 's|^distributionUrl=.*|distributionUrl=file\://'"$GRADLE_LOCAL_ZIP"'|' "$f"
           cat "$f"
 
       - name: Build release APK
@@ -73,7 +88,7 @@ jobs:
         shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew --version
+          ./gradlew --version || true
           for attempt in 1 2 3; do
             echo "::group::assembleRelease attempt $attempt"
             if ./gradlew assembleRelease \
