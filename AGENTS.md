@@ -235,3 +235,9 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   artifact `contactsapp-release-apk` (30 days). Triggered on any push.
 - The working tree has `src/`, `scripts/`, `modules/`, `TASK.md` **untracked** — the
   GitHub repo does not contain the app source yet; a push must include them.
+- 2026-11-09: GitHub token (scopes repo+workflow) stored in `~/.git-credentials`
+  (credential.helper store) for user `elyasyy23-lgtm`; `origin` switched to HTTPS.
+  `src/`, `modules/`, `scripts/`, `TASK.md` pushed — repo now holds the full app.
+  Local history was rebased onto the remote `main`; conflicts in `build.yml` resolved
+  by keeping the remote (Node 22 / JDK 21 / `assembleRelease`) version.
+  → GitHub Actions "Build APK" run is the shipping path (EAS upload is geo-blocked).
