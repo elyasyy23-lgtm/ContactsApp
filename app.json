@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ContactsApp",
+    "name": "eKhata",
     "slug": "ContactsApp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,6 +10,10 @@
       "supportsTablet": true
     },
     "android": {
+      "permissions": [
+        "RECEIVE_SMS",
+        "READ_SMS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

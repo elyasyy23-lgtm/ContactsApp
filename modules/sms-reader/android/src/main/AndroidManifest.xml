@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECEIVE_SMS" />
+  <uses-permission android:name="android.permission.READ_SMS" />
+
+  <application>
+    <!-- Bank SMS arrive as a broadcast. The receiver stores every message in
+         SharedPreferences, so a payment is captured even when the app is closed
+         and gets imported on the next launch. -->
+    <receiver
+      android:name="expo.modules.smsreader.SmsReceiver"
+      android:enabled="true"
+      android:exported="true"
+      android:permission="android.permission.BROADCAST_SMS">
+      <intent-filter android:priority="999">
+        <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>
