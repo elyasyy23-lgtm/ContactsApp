@@ -1,17 +1,25 @@
 // Single source of truth for customers + transactions.
 // Everything reads from this context, so a payment recorded on the detail screen
 // updates the home list balance instantly (no manual refresh, no local copies).
+//
+// The store is kept in a ref (`contactsRef`) AND in state: mutations compute the
+// next list synchronously from the ref, so the transaction save path can look at
+// the NEW balance in the same tick and fire the automatic SMS reminder — no
+// button, no screen effect, no waiting for a re-render.
 import React, {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initialOf, faLetterIndex } from '../utils/format';
 import { REMINDER_THRESHOLD } from '../utils/reminderGate';
+import { autoSendReminder } from '../utils/reminderAuto';
+import { useSettings } from './SettingsContext';
 
 const STORAGE_KEY = '@contacts_data';
 
@@ -85,6 +93,21 @@ export function ContactsProvider({ children }) {
   const [contacts, setContacts] = useState([]);
   const [hydrated, setHydrated] = useState(false);
 
+  // Mirror of `contacts` for synchronous reads inside mutations.
+  const contactsRef = useRef(contacts);
+
+  // Shop details (name + card) are needed to build the reminder text. Kept in a
+  // ref so the callbacks below stay stable across settings edits.
+  const { settings } = useSettings();
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  /** Single write path: ref first (synchronous), then React state. */
+  const commit = useCallback((next) => {
+    contactsRef.current = next;
+    setContacts(next);
+  }, []);
+
   // Load once.
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +117,7 @@ export function ContactsProvider({ children }) {
         if (raw && !cancelled) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
-            setContacts(parsed.map(normalizeContact));
+            commit(parsed.map(normalizeContact));
           }
         }
       } catch (error) {
@@ -106,7 +129,7 @@ export function ContactsProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [commit]);
 
   // Persist after every change (skipping the initial empty render).
   useEffect(() => {
@@ -116,114 +139,167 @@ export function ContactsProvider({ children }) {
     );
   }, [contacts, hydrated]);
 
-  const addContact = useCallback((data) => {
-    const contact = normalizeContact({
-      ...data,
-      id: `${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      transactions: [],
-    });
-    setContacts((prev) => [contact, ...prev]);
-    return contact;
-  }, []);
+  // Toggles the automatic-reminder latch. No-op when the value is unchanged.
+  const setSmsSentForCurrentDebt = useCallback(
+    (contactId, sent) => {
+      const prev = contactsRef.current;
+      const target = prev.find((c) => c.id === contactId);
+      if (!target || Boolean(target.smsSentForCurrentDebt) === Boolean(sent)) {
+        return;
+      }
+      commit(
+        prev.map((c) =>
+          c.id === contactId ? { ...c, smsSentForCurrentDebt: Boolean(sent) } : c,
+        ),
+      );
+    },
+    [commit],
+  );
 
-  const updateContact = useCallback((id, data) => {
-    setContacts((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? normalizeContact({
-              ...c,
-              ...data,
-              letter: initialOf(data.name ?? c.name),
-            })
-          : c,
-      ),
-    );
-  }, []);
+  /**
+   * The automatic reminder trigger. Called by every transaction mutation with
+   * the contact AFTER the change. Fire-and-forget — the store never waits for
+   * the SMS, and a failure simply leaves the latch untouched (next save retries).
+   */
+  const fireAutoReminder = useCallback(
+    (contact) => {
+      if (!contact) return;
+      autoSendReminder({
+        contact,
+        balance: balanceOf(contact),
+        settings: settingsRef.current,
+        setSmsSentForCurrentDebt,
+      }).catch((error) => console.warn('Automatic reminder failed', error));
+    },
+    [setSmsSentForCurrentDebt],
+  );
 
-  const deleteContact = useCallback((id) => {
-    setContacts((prev) => prev.filter((c) => c.id !== id));
-  }, []);
+  const addContact = useCallback(
+    (data) => {
+      const contact = normalizeContact({
+        ...data,
+        id: `${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        transactions: [],
+      });
+      commit([contact, ...contactsRef.current]);
+      return contact;
+    },
+    [commit],
+  );
+
+  const updateContact = useCallback(
+    (id, data) => {
+      commit(
+        contactsRef.current.map((c) =>
+          c.id === id
+            ? normalizeContact({
+                ...c,
+                ...data,
+                letter: initialOf(data.name ?? c.name),
+              })
+            : c,
+        ),
+      );
+    },
+    [commit],
+  );
+
+  const deleteContact = useCallback(
+    (id) => {
+      commit(contactsRef.current.filter((c) => c.id !== id));
+    },
+    [commit],
+  );
 
   /**
    * Bulk replace (backup restore / clear-all). Every row goes through
    * normalizeContact, so a restored file can never poison the store shape.
    * Returns the number of contacts actually imported.
    */
-  const importContacts = useCallback((list) => {
-    const rows = Array.isArray(list) ? list : [];
-    setContacts(rows.map(normalizeContact));
-    return rows.length;
-  }, []);
+  const importContacts = useCallback(
+    (list) => {
+      const rows = Array.isArray(list) ? list : [];
+      commit(rows.map(normalizeContact));
+      return rows.length;
+    },
+    [commit],
+  );
 
-  const addTransaction = useCallback((contactId, data) => {
-    const transaction = normalizeTransaction({
-      ...data,
-      id: `${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    });
-    setContacts((prev) =>
-      prev.map((c) =>
-        c.id === contactId
-          ? settleReminderLatch({
-              ...c,
-              transactions: [...c.transactions, transaction],
-            })
-          : c,
-      ),
-    );
-    return transaction;
-  }, []);
+  /**
+   * Save a transaction — THE automatic-reminder trigger point.
+   * The new balance is known synchronously here, so the moment a credit pushes
+   * the debt above REMINDER_THRESHOLD the silent SMS goes out by itself.
+   */
+  const addTransaction = useCallback(
+    (contactId, data) => {
+      const transaction = normalizeTransaction({
+        ...data,
+        id: `${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      });
+      const prev = contactsRef.current;
+      const target = prev.find((c) => c.id === contactId);
+      if (!target) return transaction;
 
-  const updateTransaction = useCallback((contactId, transactionId, data) => {
-    setContacts((prev) =>
-      prev.map((c) => {
-        if (c.id !== contactId) return c;
-        return settleReminderLatch({
-          ...c,
-          transactions: c.transactions.map((t) =>
-            t.id === transactionId
-              ? normalizeTransaction({ ...t, ...data, id: t.id })
-              : t,
-          ),
-        });
-      }),
-    );
-  }, []);
+      const updated = settleReminderLatch({
+        ...target,
+        transactions: [...target.transactions, transaction],
+      });
+      commit(prev.map((c) => (c.id === contactId ? updated : c)));
+      fireAutoReminder(updated);
+      return transaction;
+    },
+    [commit, fireAutoReminder],
+  );
 
-  const deleteTransaction = useCallback((contactId, transactionId) => {
-    setContacts((prev) =>
-      prev.map((c) =>
-        c.id === contactId
-          ? settleReminderLatch({
-              ...c,
-              transactions: c.transactions.filter((t) => t.id !== transactionId),
-            })
-          : c,
-      ),
-    );
-  }, []);
+  const updateTransaction = useCallback(
+    (contactId, transactionId, data) => {
+      const prev = contactsRef.current;
+      const target = prev.find((c) => c.id === contactId);
+      if (!target) return;
+
+      const updated = settleReminderLatch({
+        ...target,
+        transactions: target.transactions.map((t) =>
+          t.id === transactionId
+            ? normalizeTransaction({ ...t, ...data, id: t.id })
+            : t,
+        ),
+      });
+      commit(prev.map((c) => (c.id === contactId ? updated : c)));
+      fireAutoReminder(updated);
+    },
+    [commit, fireAutoReminder],
+  );
+
+  const deleteTransaction = useCallback(
+    (contactId, transactionId) => {
+      const prev = contactsRef.current;
+      const target = prev.find((c) => c.id === contactId);
+      if (!target) return;
+
+      const updated = settleReminderLatch({
+        ...target,
+        transactions: target.transactions.filter((t) => t.id !== transactionId),
+      });
+      commit(prev.map((c) => (c.id === contactId ? updated : c)));
+      fireAutoReminder(updated);
+    },
+    [commit, fireAutoReminder],
+  );
 
   // A deleted category must not leave dangling ids behind.
-  const clearProfileFromContacts = useCallback((profileId) => {
-    setContacts((prev) =>
-      prev.map((c) => (c.profileId === profileId ? { ...c, profileId: '' } : c)),
-    );
-  }, []);
-
-  // Toggles the automatic-reminder latch. Returns `prev` untouched when the
-  // value is already what we want, so the effect that calls it cannot loop.
-  const setSmsSentForCurrentDebt = useCallback((contactId, sent) => {
-    setContacts((prev) => {
-      const target = prev.find((c) => c.id === contactId);
-      if (!target || Boolean(target.smsSentForCurrentDebt) === Boolean(sent)) {
-        return prev;
-      }
-      return prev.map((c) =>
-        c.id === contactId ? { ...c, smsSentForCurrentDebt: Boolean(sent) } : c,
+  const clearProfileFromContacts = useCallback(
+    (profileId) => {
+      commit(
+        contactsRef.current.map((c) =>
+          c.profileId === profileId ? { ...c, profileId: '' } : c,
+        ),
       );
-    });
-  }, []);
+    },
+    [commit],
+  );
 
   const value = useMemo(
     () => ({

@@ -1,5 +1,6 @@
-// Silent SMS dispatch — used by the MANUAL reminder sender
-// (src/utils/reminderSend.js) and callable from anywhere.
+// Silent SMS dispatch — used by the AUTOMATIC reminder sender
+// (src/utils/reminderAuto.js, fired from the transaction save) and by the
+// manual fallback button (src/utils/reminderSend.js).
 //
 // The transport ladder:
 //   1. Real APK (native module present) + SEND_SMS granted → SmsManager

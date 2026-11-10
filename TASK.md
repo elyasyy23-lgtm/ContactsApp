@@ -283,3 +283,26 @@ Batch 9 shipped (silent SMS). NOT yet pushed — needs commit + push for the
 Actions APK build. Real-device test required: install APK, grant SMS
 permission on first sweep, verify a reminder goes out with no messaging app
 and no Send button. Expo Go keeps the composer fallback by design.
+
+## Batch 5 (2026-11-10 v10) — AUTOMATIC reminder inside the transaction save
+GOAL (owner spec): the moment a transaction is saved and the debt goes above
+1,000 units (1,000,000 Toman), the silent SMS must go out by itself — no button.
+Reset rules: once per crossing; a payment to/≤ 1,000 resets the latch; the next
+crossing sends exactly one more.
+- [x] `src/utils/reminderAuto.js` — `autoSendReminder()`: silent-only (no Alert,
+      no composer), latches ONLY on a successful send, `inFlight` Set blocks a
+      duplicate while a send is pending, respects `reminderEnabled` + shop
+      details + a usable phone.
+- [x] `ContactsContext` rewritten around `contactsRef` + `commit(next)` so a
+      mutation knows the new balance synchronously; `fireAutoReminder(updated)`
+      is called from `addTransaction`, `updateTransaction`, `deleteTransaction`.
+- [x] `settleReminderLatch` still resets the latch on every mutation when the
+      debt returns to/≤ the threshold (bank-SMS payments included).
+- [x] Manual buttons kept as a FALLBACK only (Expo Go / denied SEND_SMS / switch
+      turned on late) — the automatic path never depends on them.
+- [x] `scripts/verify.js`: owner scenario step-by-step + static guards (3 trigger
+      call sites, no Alert/Linking in the auto sender, `reminderEnabled` check).
+      `npm run verify` = 39/39 files ok, unit checks ok; Metro bundle 200 with
+      `fireAutoReminder`/`autoSendReminder` present.
+- [ ] APK build + on-device test: save a credit crossing 1,000 → SMS leaves with
+      no composer; pay below → save credit again → exactly one more SMS.

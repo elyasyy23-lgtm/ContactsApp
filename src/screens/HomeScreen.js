@@ -65,10 +65,11 @@ export default function HomeScreen({ navigation }) {
     ]);
   };
 
-  // Reminders are MANUAL-ONLY (owner decision 2026-11-10): no auto-send on
-  // app open, no background sweep. The send buttons live on the customer
-  // page and in the Debtors list; every guard and the silent SmsManager
-  // transport are shared in src/utils/reminderSend.js.
+  // Reminders are AUTOMATIC (owner decision 2026-11-10, final): the SMS fires
+  // from the transaction save inside ContactsContext the moment a credit pushes
+  // the debt above the threshold — no sweep on app open, no button. The manual
+  // buttons on the customer page / Debtors list are only the fallback for Expo
+  // Go, a denied SEND_SMS permission or a switch turned on late.
 
   const openDetail = (item) =>
     navigation.navigate('CustomerDetail', { contactId: item.id });

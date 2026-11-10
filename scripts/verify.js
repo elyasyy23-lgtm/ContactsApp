@@ -342,6 +342,56 @@ try {
   assert.strictEqual(step(0), 'reset', 'customer pays → latch cleared');
   assert.strictEqual(step(1500), 'send', 'new debt → exactly one more SMS');
   assert.strictEqual(step(1900), 'none', 'and silent afterwards');
+
+  // ── automatic reminder is wired into the transaction save path ───────────
+  // Static guard: the trigger must live inside ContactsContext's transaction
+  // mutations (no button, no screen effect). A refactor that drops it silently
+  // breaks the whole feature, so it is asserted here.
+  const storeSrc = fs.readFileSync(path.join(srcDir, 'store/ContactsContext.js'), 'utf8');
+  assert.ok(
+    storeSrc.includes("from '../utils/reminderAuto'"),
+    'ContactsContext imports the automatic sender',
+  );
+  const fireCalls = (storeSrc.match(/fireAutoReminder\(updated\)/g) || []).length;
+  assert.strictEqual(
+    fireCalls,
+    3,
+    'add / update / delete transaction each fire the automatic reminder',
+  );
+  assert.ok(
+    /const addTransaction[\s\S]{0,1200}fireAutoReminder\(updated\)/.test(storeSrc),
+    'the trigger sits inside addTransaction (the transaction save path)',
+  );
+
+  const autoSrc = fs.readFileSync(path.join(srcDir, 'utils/reminderAuto.js'), 'utf8');
+  assert.ok(
+    autoSrc.includes('sendSilently') && autoSrc.includes('setSmsSentForCurrentDebt'),
+    'automatic sender sends silently and latches only on success',
+  );
+  assert.ok(
+    !autoSrc.includes('Alert') && !autoSrc.includes('Linking'),
+    'automatic sender never opens a UI (no Alert / no composer)',
+  );
+  assert.ok(
+    autoSrc.includes('reminderEnabled !== false'),
+    'a customer with the reminder switch off gets no automatic SMS',
+  );
+
+  // The exact owner scenario, one step at a time: save credit → send;
+  // more credit → silent; payment below → reset; new credit → send again.
+  let autoLatch = false;
+  const autoStep = (balance) => {
+    const action = gate.reminderAction({ balance, sentForCurrentDebt: autoLatch, ...ready });
+    if (action === 'send') autoLatch = true;
+    if (action === 'reset') autoLatch = false;
+    return action;
+  };
+  assert.strictEqual(autoStep(1001), 'send', 'rule 1: first crossing above 1,000 sends');
+  assert.strictEqual(autoStep(2600), 'none', 'rule 1: never twice for the same debt');
+  assert.strictEqual(autoStep(1000), 'reset', 'rule 2: paid down to the threshold resets');
+  assert.strictEqual(autoStep(999), 'none', 'rule 2: still below → nothing to send');
+  assert.strictEqual(autoStep(1500), 'send', 'rule 3: new credit above 1,000 sends once more');
+  assert.strictEqual(autoStep(99999), 'none', 'rule 3: and stays silent after that');
   // ── customer categories (profiles) ───────────────────────────────────────
   assert.strictEqual(profileUtils.PROFILE_NAME_MAX, 24);
   assert.strictEqual(profileUtils.cleanProfileName('  فروشگاه   اصلی '), 'فروشگاه اصلی');

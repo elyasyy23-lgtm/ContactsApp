@@ -1,7 +1,10 @@
-// MANUAL reminder sender — the ONLY way reminders go out (owner decision
-// 2026-11-10: no background sweep, no auto-send on app open; the button tap is
-// the trigger). Silent-first: SmsManager sends without opening any messaging
-// app or showing a Send button. The composer is only a fallback for Expo Go
+// MANUAL reminder sender — the fallback button. The normal path is AUTOMATIC:
+// `src/utils/reminderAuto.js` fires from the transaction save inside
+// ContactsContext the moment a credit pushes the debt above the threshold.
+// This module exists for the cases the automatic path cannot handle (Expo Go
+// with no native module, denied SEND_SMS, or a customer whose reminder switch
+// was turned on after the debt already crossed): the tap is the trigger, and
+// silent-first stays the default. The composer is only a fallback for Expo Go
 // (no native module) or when SEND_SMS was denied.
 //
 // Shared by CustomerDetailScreen and DebtorsScreen so the rules can never

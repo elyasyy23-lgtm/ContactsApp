@@ -28,6 +28,8 @@ src/utils/smsParser.js      bank-SMS → {amount, tomanAmount, rawAmount, direct
                             buildReminder() = the exact Persian reminder template
 src/utils/smsSend.js       silent SMS transport ladder (native SmsManager →
                             composer fallback), sendSilently/silentSmsAvailable
+src/utils/reminderAuto.js  AUTOMATIC reminder: fired by the transaction save
+                            (silent only, latch on success, inFlight guard)
 src/utils/trial.js          7-day trial math (pure): TRIAL_DAYS = 7, trialInfo(start, now)
 src/utils/billing.js        Myket/Cafe-Bazaar IAP placeholder (BILLING_READY=false)
 src/store/ContactsContext.js single source of truth (AsyncStorage @contacts_data) +
@@ -47,7 +49,7 @@ src/components/AppDrawer.js right drawer: gradient header, debtors card (live co
                             report/calculator/SMS imports (navigate('MainStack',{screen}))
 src/screens/HomeScreen.js   minimal header (hamburger + shop name + search icon),
                             letter chips + list + FAB; search = name/phone/cardNumber;
-                            THE reminder sweep (only auto-sender of silent SMS)
+                            (no reminder logic — the trigger lives in ContactsContext)
 src/screens/DebtorsScreen.js all debtors, letter chips + alphabetical sections, totals
 src/screens/ReportScreen.js all-customers report (credit/payment/net) + CSV share button
 src/screens/CalculatorScreen.js button-grid calculator, Persian display, ASCII expr inside
@@ -58,6 +60,8 @@ src/screens/CustomerDetailScreen.js balance card, call/SMS quick actions
 src/screens/CustomerFormScreen.js  add/edit customer (+ trial-lock guard)
 src/utils/smsMatch.js              SMS → customer matcher (card last-4 / full name / partial)
 src/utils/reminderGate.js          REMINDER_THRESHOLD + reminderAction() (send/reset/none latch)
+src/utils/reminderAuto.js          autoSendReminder() — the automatic trigger path
+src/utils/reminderSend.js          sendManualReminder() — fallback button flow
 src/store/SmsInboxContext.js       auto-import pipeline (native queue → parse → record)
 src/screens/SmsImportScreen.js     pending auto-imports + paste SMS → parse → pick customer
 modules/sms-reader/                LOCAL native module (Kotlin receiver + JS bridge)
@@ -106,7 +110,7 @@ src/screens/PremiumScreen.js       trial paywall (days left / trial ended), buy,
 - Automatic reminder (anti-spam latch): the customer carries `smsSentForCurrentDebt`.
   `reminderAction()` in `src/utils/reminderGate.js` decides `send` / `reset` / `none`:
   debt above `REMINDER_THRESHOLD` (now **1,000 ledger units = 1,000,000 Toman**, v5) with the
-  latch off → compose the SMS once (exact template from `buildReminder()`, including the
+  latch off → send the SMS once, silently (exact template from `buildReminder()`, including the
   «لطفاً پس از واریز، تصویر رسید تراکنش را برای این شماره ارسال نمایید.» line before the final
   thanks and «به نام: {myName}») and set the latch; debt back to/≤ threshold → the
   latch is cleared, so the next crossing sends exactly one more; while the debt stays above,
@@ -143,22 +147,37 @@ src/screens/PremiumScreen.js       trial paywall (days left / trial ended), buy,
   no `canOpenURL` (Android 11 package visibility would need extra manifest queries).
 
 ### Silent SMS sending — v9 2026-11-10
-- **The HomeScreen sweep is the ONLY auto-sender of reminders** (mount, contacts/
-  settings change, AppState 'active'): one silent SMS per due customer (1.2 s
-  pacing), latch per success. CustomerDetailScreen deliberately SKIPS its
-  auto-composer when silent sending is possible — never reintroduce a second
-  auto-send path (double-fire race).
+- **The reminder is AUTOMATIC and fires from the transaction save path.** The trigger
+  lives in `ContactsContext` (`fireAutoReminder`) and is called by
+  `addTransaction` / `updateTransaction` / `deleteTransaction` right after the new
+  contact is committed — so the moment a credit pushes the debt above
+  `REMINDER_THRESHOLD` the silent SMS goes out with no button press. There is NO
+  screen sweep and NO AppState effect; never reintroduce a second auto-send path
+  (double-fire race). `scripts/verify.js` statically asserts all three call sites.
+- The store keeps the list in `contactsRef` (synchronous) alongside state, so a
+  mutation knows the NEW balance in the same tick — that is what makes the instant
+  trigger possible. Any new mutation must go through `commit(next)`.
+- `src/utils/reminderAuto.js` → `autoSendReminder({ contact, balance, settings,
+  setSmsSentForCurrentDebt })`: **silent only** (no Alert, no composer — a popup in
+  the middle of a save would be a surprise), latches ONLY on a successful send, and
+  keeps an `inFlight` Set so two quick saves cannot double-send. Unavailable native
+  module / denied permission → no send AND no latch (next save retries).
+- Rules: (1) debt above 1,000 units (1,000,000 Toman) → exactly one SMS;
+  (2) payment brings it to/≤ 1,000 → `settleReminderLatch` clears the latch;
+  (3) new credit above again → exactly one more SMS.
+- The manual buttons (CustomerDetail + Debtors, `src/utils/reminderSend.js`) are now
+  only a FALLBACK: Expo Go (no native module), denied SEND_SMS, or a customer whose
+  switch was turned on after the debt already crossed. They keep the composer
+  fallback; the automatic path never uses it.
 - Transport ladder (`src/utils/smsSend.js`): native `sendSms` (SmsManager,
-  multipart — Persian is UCS-2) → composer (`sms:` URL) as fallback for Expo Go
-  or a switched-off `reminderAutoSend`. SEND_SMS is requested once from JS via
-  `PermissionsAndroid.request`; a denied permission shows a one-time Alert
-  routing to Android settings.
-- `dueReminderContacts(contacts, { settingsReady, balanceOf })` in
-  `src/utils/reminderGate.js` is pure — `balanceOf` is passed in as a parameter
-  (never import React-land into reminderGate; verify.js requires it in Node).
+  multipart — Persian is UCS-2) → composer (`sms:` URL) fallback. SEND_SMS is
+  requested once from JS via `PermissionsAndroid.request` (the first automatic
+  send shows the Android dialog; after that it is silent forever).
+- `reminderAction()` in `src/utils/reminderGate.js` is pure (`send`/`reset`/`none`) —
+  never import React-land into reminderGate; verify.js requires it in Node.
 - Persian-digit-only phone numbers cannot be dialed silently (everything is
-  stripped to `[0-9+]`) — they are excluded from the due list on purpose,
-  matching `cleanSmsPhone`. The customer form asks for English digits.
+  stripped to `[0-9+]`), so `cleanSmsPhone()` empties them and no SMS is attempted.
+  The customer form asks for English digits.
 - Kotlin side lives in `SmsReaderModule.sendSms` with its own
   `checkSelfPermission(SEND_SMS)` guard and returns `{ok, reason}` maps; the
   manifest and app.json both list SEND_SMS.

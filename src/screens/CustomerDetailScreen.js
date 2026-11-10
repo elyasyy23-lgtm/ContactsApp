@@ -117,11 +117,16 @@ export default function CustomerDetailScreen({ navigation, route }) {
   const callCustomer = () => openPhoneApp('tel');
   const smsCustomer = () => openPhoneApp('sms');
 
-  // Manual reminder — the ONLY trigger (owner decision 2026-11-10: no
-  // auto-send anywhere, this screen included). Silent-first via SmsManager:
-  // no messaging app, no Send button. All guards (per-customer switch, shop
-  // details, phone, once-per-debt latch) and fallbacks live in the shared
-  // sender used by both this screen and the Debtors screen.
+  // Automatic reminder (owner decision 2026-11-10): the SMS fires BY ITSELF
+  // from the transaction save path in ContactsContext — the moment a credit
+  // pushes the debt above the threshold. Nothing on this screen triggers it.
+  //
+  // This button is only a manual fallback for the cases where the automatic
+  // path cannot send: Expo Go (no native module), a denied SEND_SMS permission,
+  // or a customer whose switch was turned on after the debt already crossed.
+  // Same guards (per-customer switch, shop details, phone, once-per-debt latch)
+  // and the composer fallback live in the shared sender used by both this
+  // screen and the Debtors screen.
   const sendReminder = () =>
     sendManualReminder({
       contact,
@@ -131,10 +136,10 @@ export default function CustomerDetailScreen({ navigation, route }) {
       navigate: navigation.navigate,
     });
 
-  // The once-per-debt latch itself (`smsSentForCurrentDebt`) is cleared by
+  // The once-per-debt latch (`smsSentForCurrentDebt`) is cleared by
   // ContactsContext on every transaction change (settleReminderLatch), so a
-  // payment — even one auto-imported from a bank SMS — re-arms the button
-  // without any screen needing to be open.
+  // payment — even one auto-imported from a bank SMS — re-arms the next
+  // crossing without any screen needing to be open.
 
   if (!contact) {
     return (
