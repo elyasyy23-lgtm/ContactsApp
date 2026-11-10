@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Linking,
@@ -22,6 +22,13 @@ import {
 } from '../theme';
 import { dateTime, money, toFa } from '../utils/format';
 import { sendManualReminder } from '../utils/reminderSend';
+import { REMINDER_UI, reminderUiState } from '../utils/reminderUi';
+import {
+  cleanSmsPhone,
+  hasSendPermission,
+  requestSendPermission,
+  silentSmsAvailable,
+} from '../utils/smsSend';
 import {
   balanceOf,
   TRANSACTION,
@@ -39,6 +46,28 @@ import {
 } from '../components/ui';
 import AmountSheet from '../components/AmountSheet';
 
+/** One line explaining what the reminder banner is doing for this debt. */
+function reminderHintFor(mode) {
+  switch (mode) {
+    case REMINDER_UI.OFF:
+      return 'ارسال پیامک یادآوری برای این مشتری خاموش شده است (از فرم مشتری).';
+    case REMINDER_UI.SENT:
+      return 'یادآوری خودکار این بدهی ارسال شد؛ برای همین بدهی پیامک دیگری فرستاده نمی‌شود.';
+    case REMINDER_UI.ARMED:
+      return 'یادآوری خودکار فعال است — پیامک بی‌صدا و بدون باز شدن برنامه پیامک ارسال می‌شود.';
+    case REMINDER_UI.PERMISSION:
+      return 'برای ارسال خودکار، یک بار اجازه ارسال پیامک لازم است.';
+    case REMINDER_UI.SETTINGS:
+      return 'نام و شماره کارت را در تنظیمات وارد کنید تا ارسال خودکار فعال شود.';
+    case REMINDER_UI.PHONE:
+      return 'برای این مشتری شماره موبایل ثبت نشده است.';
+    case REMINDER_UI.UNAVAILABLE:
+      return 'ارسال خودکار در این نسخه ممکن نیست — با دکمه، پیامک را بفرستید.';
+    default:
+      return '';
+  }
+}
+
 export default function CustomerDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { contactId } = route.params || {};
@@ -48,6 +77,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
     updateTransaction,
     deleteTransaction,
     deleteContact,
+    attemptAutoReminder,
     setSmsSentForCurrentDebt,
   } = useContacts();
   const { settings } = useSettings();
@@ -119,14 +149,13 @@ export default function CustomerDetailScreen({ navigation, route }) {
 
   // Automatic reminder (owner decision 2026-11-10): the SMS fires BY ITSELF
   // from the transaction save path in ContactsContext — the moment a credit
-  // pushes the debt above the threshold. Nothing on this screen triggers it.
+  // pushes the debt above the threshold. No button is needed for that case and
+  // none is shown (see `reminderUiState`): the banner only reports the state.
   //
-  // This button is only a manual fallback for the cases where the automatic
-  // path cannot send: Expo Go (no native module), a denied SEND_SMS permission,
-  // or a customer whose switch was turned on after the debt already crossed.
-  // Same guards (per-customer switch, shop details, phone, once-per-debt latch)
-  // and the composer fallback live in the shared sender used by both this
-  // screen and the Debtors screen.
+  // A manual button survives as a FALLBACK for the cases the automatic path
+  // cannot send: missing shop details, a customer without a phone, a denied
+  // SEND_SMS permission, or Expo Go (no native module). Each fallback is a
+  // one-tap fix instead of a generic «ارسال یادآوری» button.
   const sendReminder = () =>
     sendManualReminder({
       contact,
@@ -136,10 +165,56 @@ export default function CustomerDetailScreen({ navigation, route }) {
       navigate: navigation.navigate,
     });
 
+  // SEND_SMS is checked WITHOUT a dialog (the automatic path must never pop
+  // one up by itself). Re-checked when the screen regains focus so a permission
+  // granted from system settings is picked up immediately.
+  const [smsPermission, setSmsPermission] = useState(false);
+  const refreshPermission = useCallback(() => {
+    let alive = true;
+    hasSendPermission().then((granted) => {
+      if (alive) setSmsPermission(granted);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => refreshPermission(), [refreshPermission]);
+
+  const grantPermission = async () => {
+    const granted = await requestSendPermission();
+    setSmsPermission(granted);
+    if (granted && contact) {
+      // The debt already crossed while the permission was missing — send now.
+      attemptAutoReminder(contact.id);
+    }
+  };
+
   // The once-per-debt latch (`smsSentForCurrentDebt`) is cleared by
   // ContactsContext on every transaction change (settleReminderLatch), so a
   // payment — even one auto-imported from a bank SMS — re-arms the next
   // crossing without any screen needing to be open.
+
+  // What this debt's reminder control may look like (pure, unit-tested).
+  // 'armed' / 'sent' = the automatic sender owns the job → NO manual button.
+  const reminderUi = reminderUiState({
+    balance,
+    sentForCurrentDebt: contact ? contact.smsSentForCurrentDebt : false,
+    reminderEnabled: contact ? contact.reminderEnabled !== false : true,
+    settingsReady,
+    hasPhone: contact ? Boolean(cleanSmsPhone(contact.phone)) : false,
+    silentAvailable: silentSmsAvailable,
+    permissionGranted: smsPermission,
+  });
+
+  // Recovery: this debt crossed while automatic sending was impossible (shop
+  // details were empty, permission denied, app updated over old debts). Now
+  // that everything is in place, send it once — the latch and the in-flight
+  // guard make this idempotent, so re-focusing the screen sends nothing extra.
+  const autoArmed = reminderUi.mode === REMINDER_UI.ARMED;
+  useEffect(() => {
+    if (!autoArmed || !contact) return;
+    attemptAutoReminder(contact.id);
+  }, [autoArmed, contact, attemptAutoReminder]);
 
   if (!contact) {
     return (
@@ -390,27 +465,56 @@ export default function CustomerDetailScreen({ navigation, route }) {
         {needsReminder ? (
           <View style={styles.reminderBanner}>
             <View style={styles.reminderIcon}>
-              <Ionicons name="notifications" size={18} color={colors.white} />
+              <Ionicons
+                name={reminderUi.mode === REMINDER_UI.SENT ? 'checkmark' : 'notifications'}
+                size={18}
+                color={colors.white}
+              />
             </View>
             <View style={styles.reminderTextWrap}>
               <Text style={styles.reminderTitle}>بدهی بالای {money(REMINDER_THRESHOLD * TOMAN_PER_UNIT)} تومان</Text>
-              <Text style={styles.reminderText}>
-                {contact.reminderEnabled === false
-                  ? 'ارسال پیامک یادآوری برای این مشتری خاموش شده است (از فرم مشتری).'
-                  : settingsReady
-                    ? 'با دکمه ارسال، پیامک بی‌صدا و بدون باز شدن برنامه پیامک فرستاده می‌شود.'
-                    : 'برای ارسال یادآوری، نام و شماره کارت را در تنظیمات وارد کنید.'}
-              </Text>
+              <Text style={styles.reminderText}>{reminderHintFor(reminderUi.mode)}</Text>
             </View>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              style={styles.reminderBtn}
-              onPress={() => (settingsReady ? sendReminder() : openSettings())}
-            >
-              <Text style={styles.reminderBtnText}>
-                {settingsReady ? 'ارسال یادآوری' : 'تنظیمات'}
-              </Text>
-            </TouchableOpacity>
+            {/* A button appears ONLY when the automatic sender cannot do it
+                itself — one tap fixes the blocker, then the auto path resumes. */}
+            {reminderUi.mode === REMINDER_UI.PERMISSION ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.reminderBtn}
+                onPress={grantPermission}
+              >
+                <Text style={styles.reminderBtnText}>اجازه ارسال</Text>
+              </TouchableOpacity>
+            ) : null}
+            {reminderUi.mode === REMINDER_UI.SETTINGS ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.reminderBtn}
+                onPress={openSettings}
+              >
+                <Text style={styles.reminderBtnText}>تنظیمات</Text>
+              </TouchableOpacity>
+            ) : null}
+            {reminderUi.mode === REMINDER_UI.PHONE ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.reminderBtn}
+                onPress={() =>
+                  navigation.navigate('CustomerForm', { contactId: contact.id })
+                }
+              >
+                <Text style={styles.reminderBtnText}>شماره</Text>
+              </TouchableOpacity>
+            ) : null}
+            {reminderUi.mode === REMINDER_UI.UNAVAILABLE ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.reminderBtn}
+                onPress={sendReminder}
+              >
+                <Text style={styles.reminderBtnText}>ارسال دستی</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : null}
 
@@ -430,16 +534,17 @@ export default function CustomerDetailScreen({ navigation, route }) {
           />
         </View>
 
-        {balance > 0 && contact.reminderEnabled !== false ? (
+        {/* Above the threshold the banner owns the reminder (auto or its
+            fallback), so no second send control is shown. Below it, a manual
+            «پیامک تسویه» stays useful. */}
+        {balance > 0 && !needsReminder && contact.reminderEnabled !== false ? (
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.reminderGhost}
             onPress={() => sendReminder()}
           >
             <Ionicons name="paper-plane-outline" size={15} color={colors.primary} />
-            <Text style={styles.reminderGhostText}>
-              {needsReminder ? 'ارسال پیامک یادآوری' : 'ارسال پیامک تسویه'}
-            </Text>
+            <Text style={styles.reminderGhostText}>ارسال پیامک تسویه</Text>
           </TouchableOpacity>
         ) : null}
 

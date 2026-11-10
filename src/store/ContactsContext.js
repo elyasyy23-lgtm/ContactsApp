@@ -158,11 +158,35 @@ export function ContactsProvider({ children }) {
 
   /**
    * The automatic reminder trigger. Called by every transaction mutation with
-   * the contact AFTER the change. Fire-and-forget — the store never waits for
-   * the SMS, and a failure simply leaves the latch untouched (next save retries).
+   * the contact AFTER the change; `raised` = the mutation increased the debt.
+   * A payment (debt going down) must never produce a reminder SMS, so only a
+   * rising debt is attempted — settleReminderLatch already handles the reset.
+   * Fire-and-forget — the store never waits for the SMS, and a failure simply
+   * leaves the latch untouched (next attempt retries).
    */
   const fireAutoReminder = useCallback(
-    (contact) => {
+    (contact, raised) => {
+      if (!contact || !raised) return;
+      autoSendReminder({
+        contact,
+        balance: balanceOf(contact),
+        settings: settingsRef.current,
+        setSmsSentForCurrentDebt,
+      }).catch((error) => console.warn('Automatic reminder failed', error));
+    },
+    [setSmsSentForCurrentDebt],
+  );
+
+  /**
+   * Recovery trigger for a debt that crossed while sending was impossible
+   * (shop details not filled yet, SEND_SMS denied, app updated with existing
+   * debts). A customer screen calls it when it shows such a debt; the
+   * once-per-debt latch + in-flight guard keep it idempotent, so calling it on
+   * every focus sends at most one SMS per debt crossing.
+   */
+  const attemptAutoReminder = useCallback(
+    (contactId) => {
+      const contact = contactsRef.current.find((c) => c.id === contactId);
       if (!contact) return;
       autoSendReminder({
         contact,
@@ -230,6 +254,8 @@ export function ContactsProvider({ children }) {
    * Save a transaction — THE automatic-reminder trigger point.
    * The new balance is known synchronously here, so the moment a credit pushes
    * the debt above REMINDER_THRESHOLD the silent SMS goes out by itself.
+   * `raised` is what makes it a crossing: a payment lowers the debt and must
+   * never send a reminder.
    */
   const addTransaction = useCallback(
     (contactId, data) => {
@@ -242,12 +268,13 @@ export function ContactsProvider({ children }) {
       const target = prev.find((c) => c.id === contactId);
       if (!target) return transaction;
 
+      const before = balanceOf(target);
       const updated = settleReminderLatch({
         ...target,
         transactions: [...target.transactions, transaction],
       });
       commit(prev.map((c) => (c.id === contactId ? updated : c)));
-      fireAutoReminder(updated);
+      fireAutoReminder(updated, balanceOf(updated) > before);
       return transaction;
     },
     [commit, fireAutoReminder],
@@ -259,6 +286,7 @@ export function ContactsProvider({ children }) {
       const target = prev.find((c) => c.id === contactId);
       if (!target) return;
 
+      const before = balanceOf(target);
       const updated = settleReminderLatch({
         ...target,
         transactions: target.transactions.map((t) =>
@@ -268,7 +296,7 @@ export function ContactsProvider({ children }) {
         ),
       });
       commit(prev.map((c) => (c.id === contactId ? updated : c)));
-      fireAutoReminder(updated);
+      fireAutoReminder(updated, balanceOf(updated) > before);
     },
     [commit, fireAutoReminder],
   );
@@ -279,12 +307,13 @@ export function ContactsProvider({ children }) {
       const target = prev.find((c) => c.id === contactId);
       if (!target) return;
 
+      const before = balanceOf(target);
       const updated = settleReminderLatch({
         ...target,
         transactions: target.transactions.filter((t) => t.id !== transactionId),
       });
       commit(prev.map((c) => (c.id === contactId ? updated : c)));
-      fireAutoReminder(updated);
+      fireAutoReminder(updated, balanceOf(updated) > before);
     },
     [commit, fireAutoReminder],
   );
@@ -312,6 +341,7 @@ export function ContactsProvider({ children }) {
       addTransaction,
       updateTransaction,
       deleteTransaction,
+      attemptAutoReminder,
       setSmsSentForCurrentDebt,
       clearProfileFromContacts,
     }),
@@ -325,6 +355,7 @@ export function ContactsProvider({ children }) {
       addTransaction,
       updateTransaction,
       deleteTransaction,
+      attemptAutoReminder,
       setSmsSentForCurrentDebt,
       clearProfileFromContacts,
     ],

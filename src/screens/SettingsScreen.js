@@ -27,6 +27,7 @@ import { useContacts } from '../store/ContactsContext';
 import { useProfiles } from '../store/ProfilesContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
 import { ScreenHeader } from '../components/ui';
+import { BUILD_STAMP } from '../buildInfo';
 
 function Field({ label, icon, hint, ...props }) {
   return (
@@ -463,6 +464,7 @@ export default function SettingsScreen({ navigation }) {
           <Text style={styles.footer}>
             اطلاعات فقط روی همین گوشی ذخیره می‌شود و به هیچ سروری ارسال نمی‌گردد.
           </Text>
+          <Text style={styles.buildStamp}>eKhata — نسخه {BUILD_STAMP}</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -649,6 +651,13 @@ const styles = StyleSheet.create({
   lockTitle: { fontSize: 13.5, fontWeight: '800', color: colors.text, ...rtl },
   lockSub: { fontSize: 10.5, color: colors.muted, marginTop: 3, ...rtl },
 
+  buildStamp: {
+    fontSize: 10.5,
+    color: colors.muted,
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 10,
+  },
   footer: {
     fontSize: 11,
     color: colors.muted,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "eKhata",
     "slug": "ContactsApp",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,6 +22,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "versionCode": 10,
       "package": "com.elyasyass.ContactsApp"
     },
     "web": {

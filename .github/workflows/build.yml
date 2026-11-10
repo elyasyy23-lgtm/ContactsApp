@@ -36,6 +36,19 @@ jobs:
         with:
           node-version: 22
 
+      # Every APK is named with its version + versionCode (read once, used by the
+      # artifact name below). Two builds used to share one file name, which made
+      # it impossible to tell which build was installed on the phone.
+      - name: Read app version
+        id: meta
+        run: |
+          V=$(node -p "require('./app.json').expo.version")
+          C=$(node -p "require('./app.json').expo.android.versionCode")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "code=$C" >> "$GITHUB_OUTPUT"
+          echo "apk=eKhata-v${V}-${C}.apk" >> "$GITHUB_OUTPUT"
+          echo "Building eKhata v${V} (versionCode ${C})"
+
       # Gradle 9.4.1 (used by the Expo SDK 58 template) needs JDK 17+.
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -112,14 +125,19 @@ jobs:
             sleep 30
           done
 
-      - name: Show APK info
+      - name: Name the APK after its version
+        shell: bash
         run: |
-          ls -lh android/app/build/outputs/apk/release/
-          sha256sum android/app/build/outputs/apk/release/app-release.apk
+          cd android/app/build/outputs/apk/release
+          cp app-release.apk "${{ steps.meta.outputs.apk }}"
+          ls -lh
+          sha256sum "${{ steps.meta.outputs.apk }}"
+          echo "### eKhata ${{ steps.meta.outputs.version }} (build ${{ steps.meta.outputs.code }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK: \`${{ steps.meta.outputs.apk }}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: contactsapp-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: eKhata-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.code }}
+          path: android/app/build/outputs/apk/release/${{ steps.meta.outputs.apk }}
           if-no-files-found: error
           retention-days: 30

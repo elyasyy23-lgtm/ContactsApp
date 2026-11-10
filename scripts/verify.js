@@ -112,6 +112,8 @@ const profileUtils = require(path.join(srcDir, 'utils/profiles.js'));
 const grouping = require(path.join(srcDir, 'utils/grouping.js'));
 const calc = require(path.join(srcDir, 'utils/calc.js'));
 const backup = require(path.join(srcDir, 'utils/backup.js'));
+const reminderUi = require(path.join(srcDir, 'utils/reminderUi.js'));
+const buildInfo = require(path.join(srcDir, 'buildInfo.js'));
 
 try {
   assert.strictEqual(fmt.group(1234567), '1,234,567', 'group() stays Latin');
@@ -352,15 +354,27 @@ try {
     storeSrc.includes("from '../utils/reminderAuto'"),
     'ContactsContext imports the automatic sender',
   );
-  const fireCalls = (storeSrc.match(/fireAutoReminder\(updated\)/g) || []).length;
+  const fireCalls = (
+    storeSrc.match(/fireAutoReminder\(updated, balanceOf\(updated\) > before\)/g) || []
+  ).length;
   assert.strictEqual(
     fireCalls,
     3,
     'add / update / delete transaction each fire the automatic reminder',
   );
   assert.ok(
-    /const addTransaction[\s\S]{0,1200}fireAutoReminder\(updated\)/.test(storeSrc),
+    /const addTransaction[\s\S]{0,1500}fireAutoReminder\(updated, balanceOf\(updated\) > before\)/.test(
+      storeSrc,
+    ),
     'the trigger sits inside addTransaction (the transaction save path)',
+  );
+  assert.ok(
+    /const fireAutoReminder[\s\S]{0,400}if \(!contact \|\| !raised\) return;/.test(storeSrc),
+    'a payment (debt going down) never produces a reminder SMS',
+  );
+  assert.ok(
+    storeSrc.includes('const attemptAutoReminder') && /attemptAutoReminder,/.test(storeSrc),
+    'recovery path exists and is exposed (debts that crossed while sending was impossible)',
   );
 
   const autoSrc = fs.readFileSync(path.join(srcDir, 'utils/reminderAuto.js'), 'utf8');
@@ -375,6 +389,78 @@ try {
   assert.ok(
     autoSrc.includes('reminderEnabled !== false'),
     'a customer with the reminder switch off gets no automatic SMS',
+  );
+  assert.ok(
+    !autoSrc.includes('PermissionsAndroid') &&
+      /requestPermission = false/.test(autoSrc),
+    'the automatic path never opens the Android permission dialog',
+  );
+
+  // ── reminder UI: the manual button exists ONLY as a fallback ─────────────
+  const readyUi = {
+    balance: 2000,
+    sentForCurrentDebt: false,
+    reminderEnabled: true,
+    settingsReady: true,
+    hasPhone: true,
+    silentAvailable: true,
+    permissionGranted: true,
+  };
+  const uiOf = (patch) => reminderUi.reminderUiState({ ...readyUi, ...patch });
+  const Ui = reminderUi.REMINDER_UI;
+  assert.strictEqual(uiOf({}).mode, Ui.ARMED, 'fully capable → automatic owns it');
+  assert.strictEqual(uiOf({}).canAuto, true);
+  assert.strictEqual(uiOf({ sentForCurrentDebt: true }).mode, Ui.SENT, 'already sent → receipt, no button');
+  assert.strictEqual(uiOf({ balance: 1000 }).mode, Ui.BELOW, 'exactly 1,000 → below');
+  assert.strictEqual(uiOf({ balance: 0 }).mode, Ui.BELOW);
+  assert.strictEqual(uiOf({ reminderEnabled: false }).mode, Ui.OFF, 'customer switch off');
+  assert.strictEqual(uiOf({ settingsReady: false }).mode, Ui.SETTINGS, 'shop details missing');
+  assert.strictEqual(uiOf({ hasPhone: false }).mode, Ui.PHONE, 'no phone → fallback');
+  assert.strictEqual(uiOf({ silentAvailable: false }).mode, Ui.UNAVAILABLE, 'Expo Go → composer fallback');
+  assert.strictEqual(uiOf({ permissionGranted: false }).mode, Ui.PERMISSION, 'SEND_SMS denied → one-tap fix');
+  assert.strictEqual(uiOf({ permissionGranted: false }).canAuto, false);
+  assert.strictEqual(reminderUi.isAutoOwned(Ui.ARMED), true);
+  assert.strictEqual(reminderUi.isAutoOwned(Ui.SENT), true);
+  assert.strictEqual(reminderUi.isAutoOwned(Ui.PERMISSION), false);
+
+  // Static guard: the detail screen must not render a generic send button when
+  // the automatic sender is armed — that was the reported bug.
+  const detailSrc = fs.readFileSync(path.join(srcDir, 'screens/CustomerDetailScreen.js'), 'utf8');
+  assert.ok(
+    !detailSrc.includes("'ارسال یادآوری'"),
+    'no unconditional «ارسال یادآوری» button on the customer screen',
+  );
+  assert.ok(
+    detailSrc.includes('reminderUi.mode === REMINDER_UI.PERMISSION'),
+    'the fallback button is tied to the actual blocker',
+  );
+  assert.ok(
+    /useEffect\(\(\) => \{\s*if \(!autoArmed \|\| !contact\) return;\s*attemptAutoReminder\(contact\.id\);/.test(
+      detailSrc,
+    ),
+    'the screen recovers a debt that crossed while sending was impossible',
+  );
+
+  // ── build identity: v9 and v10 shipped as the same "1.2.0" ───────────────
+  const appJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'app.json'), 'utf8'));
+  assert.strictEqual(
+    buildInfo.APP_VERSION,
+    appJson.expo.version,
+    'in-app version comes from app.json',
+  );
+  assert.strictEqual(
+    buildInfo.BUILD_NUMBER,
+    appJson.expo.android.versionCode,
+    'build number mirrors android.versionCode',
+  );
+  assert.ok(
+    Number(appJson.expo.android.versionCode) >= 10,
+    'versionCode advanced past the v9/v10 collision (both were 1.2.0)',
+  );
+  const workflow = fs.readFileSync(path.join(ROOT, '.github/workflows/build.yml'), 'utf8');
+  assert.ok(
+    workflow.includes('eKhata-v${V}-${C}.apk'),
+    'the CI APK is named with version + versionCode',
   );
 
   // The exact owner scenario, one step at a time: save credit → send;
