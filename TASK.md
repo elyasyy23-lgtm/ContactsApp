@@ -236,11 +236,50 @@ call/SMS buttons on customer detail, and a Settings "پشتیبان‌گیری �
       Android bundle HTTP 200 (~9.83 MB), all new markers present in bundle
       (AppDrawer/Debtors/Calculator/LockScreen/ekhata-backup/Persian labels).
 
+## Batch 9 (2026-11-10) — silent background SMS sending
+GOAL: the auto reminder sends WITHOUT opening the messaging app or pressing
+Send — true SmsManager background send. (Before: `sms:` URL opened the
+composer and the owner pressed Send.)
+- [x] Kotlin `SmsReaderModule`: `sendSms(destination, body)` →
+      checkSelfPermission(SEND_SMS) guard, `getSystemService(SmsManager)`
+      + divideMessage/sendMultipartTextMessage (Persian = UCS-2, ~70
+      chars/segment — always multipart for the reminder template), returns
+      `{ok, reason}` maps; `hasSendSmsPermission()` helper.
+- [x] Manifest + app.json: SEND_SMS added to both; version → 1.2.0.
+- [x] `modules/sms-reader/index.js`: `sendSmsNative` + `hasSendSmsPermission`
+      (never throw, Expo Go → `{ok:false, reason:'unavailable'}`).
+- [x] `src/utils/smsSend.js` (NEW): `sendSilently(phone, body)` transport
+      ladder — cleanSmsPhone → PermissionsAndroid.request(SEND_SMS) (one-time
+      dialog, instant when granted) → native send. `silentSmsAvailable`
+      flag. Persian-digit-only phones → 'destination' (cannot dial).
+- [x] `reminderGate.js`: `dueReminderContacts(contacts, {settingsReady,
+      balanceOf})` pure selector (balanceOf passed IN so the module stays
+      Node-importable for verify.js; the real one comes from ContactsContext).
+- [x] `SettingsContext`: `reminderAutoSend` (default ON, old stored settings
+      default to ON too).
+- [x] **HomeScreen sweep = the ONLY auto-sender** (runs on mount, on
+      contacts/settings change, and on AppState 'active'): sends one silent
+      SMS per due customer, 1.2s pacing between sends, latches each success,
+      breaks on 'permission'/'unavailable', green banner «پیامک یادآوری برای
+      n مشتری بدهکار ارسال شد», one-time Alert routing to Android settings
+      when SEND_SMS is denied. CustomerDetailScreen's auto effect now SKIPS
+      its composer timer when silent sending is possible (single code path —
+      no double-fire); the composer timer stays as the Expo Go/switched-off
+      fallback.
+- [x] `CustomerDetailScreen.sendReminder`: silent-first (native → latch +
+      «ارسال شد» alert on manual path), composer fallback when silent fails.
+- [x] SettingsScreen: «ارسال خودکار یادآوری» Switch row (paper-plane icon).
+- [x] verify.js: 7 new assertions for dueReminderContacts (due/latched/
+      below/no-phone/Persian-digit phone/settings-not-ready/missing
+      balanceOf/garbage input). 37/37 files.
+- [x] Verified: `npm run verify` ALL PASS; Metro cold bundle (cache cleared)
+      HTTP 200 (~9.84 MB) with sendSms/bridge/selector/toggle/banner present
+      (Persian strings appear as \uXXXX escapes in the bundle — grep traps).
+      PITFALL hit: Metro served a STALE SettingsScreen transform while other
+      files were fresh — fixed by `rm -rf node_modules/.cache` + restart.
+
 ## NOW:
-Batch 8 shipped (drawer + debtors + report + calculator + call/SMS + backup +
-app lock). v5–v8 pushed to GitHub (2026-11-10, this commit) → the Actions
-"Build APK" workflow is the delivery path (EAS upload stays geo-blocked).
-Remaining: tap through on the phone (Expo Go `--tunnel` or the Actions APK),
-then the real Myket IAP SDK in a dev build. Real-device notes: biometric lock +
-file sharing + document picker confirmed only on an APK; Expo Go degrades
-gracefully (LocalAuthentication not enrolled → toggle shows a message).
+Batch 9 shipped (silent SMS). NOT yet pushed — needs commit + push for the
+Actions APK build. Real-device test required: install APK, grant SMS
+permission on first sweep, verify a reminder goes out with no messaging app
+and no Send button. Expo Go keeps the composer fallback by design.

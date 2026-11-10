@@ -54,10 +54,13 @@ function normalizeContact(c, index) {
     profileId: c.profileId || '',
     letter: c.letter || initialOf(name),
     createdAt: c.createdAt || null,
-    // Anti-spam latch for the automatic reminder: true = the SMS for the current
-    // debt (balance above REMINDER_THRESHOLD) was already handed to the user.
+    // Anti-spam latch for the reminder: true = the SMS for the current
+    // debt (balance above REMINDER_THRESHOLD) was already sent.
     // Reset to false as soon as the balance comes back under the threshold.
     smsSentForCurrentDebt: Boolean(c.smsSentForCurrentDebt),
+    // Per-customer reminder switch (Customer Form «ارسال پیامک یادآوری»).
+    // Missing on old records → defaults to enabled.
+    reminderEnabled: c.reminderEnabled === undefined ? true : Boolean(c.reminderEnabled),
     transactions: Array.isArray(c.transactions)
       ? c.transactions.map(normalizeTransaction)
       : [],

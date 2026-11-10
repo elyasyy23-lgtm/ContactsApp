@@ -11,7 +11,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = '@settings_data';
 
-const EMPTY = { myName: '', cardNumber: '', shopName: '', appLock: false };
+const EMPTY = {
+  myName: '',
+  cardNumber: '',
+  shopName: '',
+  appLock: false,
+};
 
 const SettingsContext = createContext(null);
 
@@ -21,6 +26,8 @@ function normalize(raw) {
     cardNumber: String(raw?.cardNumber || '').replace(/[^\d]/g, ''),
     shopName: String(raw?.shopName || '').trim(),
     // Require fingerprint/PIN every time the app is opened (LockScreen gate).
+    // The `reminderAutoSend` field was removed 2026-11-10 — reminders are
+    // manual-only now (per-customer `reminderEnabled` on each contact).
     appLock: Boolean(raw?.appLock),
   };
 }

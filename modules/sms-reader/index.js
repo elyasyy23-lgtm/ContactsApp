@@ -44,3 +44,25 @@ export function addSmsListener(handler) {
   const subscription = emitter.addListener('onSmsReceived', handler);
   return { remove: () => subscription.remove() };
 }
+
+export async function hasSendSmsPermission() {
+  if (!nativeModule) return false;
+  try {
+    return Boolean(await nativeModule.hasSendSmsPermission());
+  } catch (error) {
+    return false;
+  }
+}
+
+// True background send (SmsManager). Returns { ok, reason } — never throws.
+export async function sendSmsNative(destination, body) {
+  if (!nativeModule) return { ok: false, reason: 'unavailable' };
+  try {
+    const result = await nativeModule.sendSms(destination, body);
+    return result && typeof result === 'object'
+      ? result
+      : { ok: false, reason: 'error' };
+  } catch (error) {
+    return { ok: false, reason: 'error', message: String(error?.message || error) };
+  }
+}

@@ -26,6 +26,8 @@ src/utils/exports.js        exportBackup/exportCsv/pickBackupFile (cache file �
                             sheet → delete; no direct Download write — scoped storage)
 src/utils/smsParser.js      bank-SMS → {amount, tomanAmount, rawAmount, direction, card, bank};
                             buildReminder() = the exact Persian reminder template
+src/utils/smsSend.js       silent SMS transport ladder (native SmsManager →
+                            composer fallback), sendSilently/silentSmsAvailable
 src/utils/trial.js          7-day trial math (pure): TRIAL_DAYS = 7, trialInfo(start, now)
 src/utils/billing.js        Myket/Cafe-Bazaar IAP placeholder (BILLING_READY=false)
 src/store/ContactsContext.js single source of truth (AsyncStorage @contacts_data) +
@@ -44,7 +46,8 @@ src/components/AppDrawer.js right drawer: gradient header, debtors card (live co
                             receivable), trial row, menu → home/settings/categories/
                             report/calculator/SMS imports (navigate('MainStack',{screen}))
 src/screens/HomeScreen.js   minimal header (hamburger + shop name + search icon),
-                            letter chips + list + FAB; search = name/phone/cardNumber
+                            letter chips + list + FAB; search = name/phone/cardNumber;
+                            THE reminder sweep (only auto-sender of silent SMS)
 src/screens/DebtorsScreen.js all debtors, letter chips + alphabetical sections, totals
 src/screens/ReportScreen.js all-customers report (credit/payment/net) + CSV share button
 src/screens/CalculatorScreen.js button-grid calculator, Persian display, ASCII expr inside
@@ -138,6 +141,32 @@ src/screens/PremiumScreen.js       trial paywall (days left / trial ended), buy,
   `LocalAuthentication.hasHardwareAsync` + `isEnrolledAsync`.
 - Call/SMS quick actions use `Linking.openURL('tel:'/'sms:')` with try/catch only —
   no `canOpenURL` (Android 11 package visibility would need extra manifest queries).
+
+### Silent SMS sending — v9 2026-11-10
+- **The HomeScreen sweep is the ONLY auto-sender of reminders** (mount, contacts/
+  settings change, AppState 'active'): one silent SMS per due customer (1.2 s
+  pacing), latch per success. CustomerDetailScreen deliberately SKIPS its
+  auto-composer when silent sending is possible — never reintroduce a second
+  auto-send path (double-fire race).
+- Transport ladder (`src/utils/smsSend.js`): native `sendSms` (SmsManager,
+  multipart — Persian is UCS-2) → composer (`sms:` URL) as fallback for Expo Go
+  or a switched-off `reminderAutoSend`. SEND_SMS is requested once from JS via
+  `PermissionsAndroid.request`; a denied permission shows a one-time Alert
+  routing to Android settings.
+- `dueReminderContacts(contacts, { settingsReady, balanceOf })` in
+  `src/utils/reminderGate.js` is pure — `balanceOf` is passed in as a parameter
+  (never import React-land into reminderGate; verify.js requires it in Node).
+- Persian-digit-only phone numbers cannot be dialed silently (everything is
+  stripped to `[0-9+]`) — they are excluded from the due list on purpose,
+  matching `cleanSmsPhone`. The customer form asks for English digits.
+- Kotlin side lives in `SmsReaderModule.sendSms` with its own
+  `checkSelfPermission(SEND_SMS)` guard and returns `{ok, reason}` maps; the
+  manifest and app.json both list SEND_SMS.
+- Metro pitfall (Termux): a stale per-file transform can serve an OLD module
+  while other files are fresh — `rm -rf node_modules/.cache` + restart Metro
+  when bundle contents look behind the source. Also: Persian strings may
+  appear as `\uXXXX` escapes in the bundle (grep for the ASCII identifiers
+  instead).
 
 ### Customer categories (profiles) — v7 2026-11-09
 - The ONLY link is `contact.profileId` (`''` = بدون دسته); never nest a profile object in

@@ -1,9 +1,12 @@
 package expo.modules.smsreader
 
+import android.Manifest
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
+import android.telephony.SmsManager
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
@@ -123,6 +126,55 @@ class SmsReaderModule : Module() {
     AsyncFunction("readInbox") { since: Double, limit: Int ->
       val context = appContext.reactContext
       if (context == null) "[]" else readInboxJson(context, since.toLong(), limit)
+    }
+
+    // ── Silent sending ────────────────────────────────────────────────────
+    // True background send via SmsManager: no messaging app, no Send button.
+    // Requires the SEND_SMS runtime permission (requested from JS through
+    // PermissionsAndroid, granted once by the user).
+
+    AsyncFunction("hasSendSmsPermission") {
+      val context = appContext.reactContext
+      context != null &&
+        context.checkSelfPermission(Manifest.permission.SEND_SMS) ==
+        PackageManager.PERMISSION_GRANTED
+    }
+
+    AsyncFunction("sendSms") { destination: String, body: String ->
+      val context = appContext.reactContext
+        ?: return@AsyncFunction mapOf("ok" to false, "reason" to "unavailable")
+
+      val target = destination.trim()
+      if (target.isEmpty()) {
+        return@AsyncFunction mapOf("ok" to false, "reason" to "destination")
+      }
+      if (body.isBlank()) {
+        return@AsyncFunction mapOf("ok" to false, "reason" to "empty")
+      }
+      if (context.checkSelfPermission(Manifest.permission.SEND_SMS) !=
+        PackageManager.PERMISSION_GRANTED
+      ) {
+        return@AsyncFunction mapOf("ok" to false, "reason" to "permission")
+      }
+
+      try {
+        val smsManager = context.getSystemService(SmsManager::class.java)
+        // Persian text is UCS-2: ~70 chars per segment, so the reminder is
+        // always multipart — divideMessage/sendMultipartTextMessage handles it.
+        val parts = smsManager.divideMessage(body)
+        if (parts.size <= 1) {
+          smsManager.sendTextMessage(target, null, body, null, null)
+        } else {
+          smsManager.sendMultipartTextMessage(target, null, parts, null, null)
+        }
+        mapOf("ok" to true)
+      } catch (error: Exception) {
+        mapOf(
+          "ok" to false,
+          "reason" to "error",
+          "message" to (error.message ?: "unknown")
+        )
+      }
     }
   }
 }

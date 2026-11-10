@@ -5,6 +5,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -52,6 +53,10 @@ export default function CustomerFormScreen({ navigation, route }) {
   const [profileId, setProfileId] = useState(
     existing ? existing.profileId || '' : presetProfileId || '',
   );
+  // Per-customer reminder switch — default ON; old records normalize to ON.
+  const [reminderEnabled, setReminderEnabled] = useState(
+    existing ? existing.reminderEnabled !== false : true,
+  );
 
   const save = () => {
     if (!name.trim()) {
@@ -65,6 +70,7 @@ export default function CustomerFormScreen({ navigation, route }) {
       address: address.trim(),
       cardNumber: cardNumber.replace(/\D/g, ''),
       profileId: profiles.some((p) => p.id === profileId) ? profileId : '',
+      reminderEnabled,
     };
 
     if (existing) {
@@ -187,6 +193,27 @@ export default function CustomerFormScreen({ navigation, route }) {
                 ))}
               </ScrollView>
             </View>
+            <View style={styles.switchCard}>
+              <View style={styles.switchIcon}>
+                <Ionicons
+                  name="paper-plane-outline"
+                  size={17}
+                  color={reminderEnabled ? colors.primary : colors.muted}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.switchTitle}>ارسال پیامک یادآوری</Text>
+                <Text style={styles.switchSub}>
+                  دکمه ارسال یادآوری برای این مشتری کار کند (ارسال بی‌صدا با خودِ برنامه).
+                </Text>
+              </View>
+              <Switch
+                value={reminderEnabled}
+                onValueChange={setReminderEnabled}
+                trackColor={{ false: colors.border, true: colors.primaryLight }}
+                thumbColor={reminderEnabled ? colors.primary : colors.white}
+              />
+            </View>
           </View>
 
           <TouchableOpacity activeOpacity={0.88} style={styles.saveBtn} onPress={save}>
@@ -224,6 +251,25 @@ const styles = StyleSheet.create({
   field: { marginBottom: 14 },
   profileField: { marginBottom: 2 },
   profileChips: { paddingBottom: 2 },
+  switchCard: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
+    padding: 12,
+    marginTop: 14,
+  },
+  switchIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
+  switchTitle: { fontSize: 13.5, fontWeight: '800', color: colors.text, ...rtl },
+  switchSub: { fontSize: 10.5, color: colors.muted, marginTop: 3, lineHeight: 16, ...rtl },
   label: { fontSize: 12.5, fontWeight: '700', color: colors.textSoft, marginBottom: 7, ...rtl },
   inputWrap: {
     flexDirection: 'row-reverse',

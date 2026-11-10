@@ -1,6 +1,7 @@
 // بدهکاران — full-screen list of every customer who owes money (balance > 0),
 // with the same dynamic Persian letter chips + alphabetical sections as Home.
-// Opened from the drawer's debtors card.
+// Opened from the drawer's debtors card. Each row has a silent-send reminder
+// button (manual trigger only — never auto-sent).
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   SectionList,
@@ -10,18 +11,22 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, faText, radius, rtl, shadows, REMINDER_THRESHOLD } from '../theme';
 import { money, toFa } from '../utils/format';
 import { letterBuckets, lettersOf } from '../utils/grouping';
+import { sendManualReminder } from '../utils/reminderSend';
 import { balanceOf, sortContacts, totalsOf, useContacts } from '../store/ContactsContext';
+import { useSettings } from '../store/SettingsContext';
 import { Avatar, Chip, EmptyState, ScreenHeader } from '../components/ui';
 
 const ALL = '__all__';
 
 export default function DebtorsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { contacts } = useContacts();
+  const { contacts, setSmsSentForCurrentDebt } = useContacts();
+  const { settings } = useSettings();
   const [letter, setLetter] = useState(ALL);
 
   const debtors = useMemo(
@@ -44,9 +49,22 @@ export default function DebtorsScreen({ navigation }) {
   const sections = useMemo(() => letterBuckets(filtered), [filtered]);
   const totals = useMemo(() => totalsOf(debtors), [debtors]);
 
+  // Silent manual send from a row tap — all guards and alerts live in the
+  // shared sender (per-customer switch, settings, phone, once-per-debt latch).
+  const sendFromRow = (item) =>
+    sendManualReminder({
+      contact: item,
+      balance: balanceOf(item),
+      settings,
+      setSmsSentForCurrentDebt,
+      navigate: navigation.navigate,
+    });
+
   const renderItem = ({ item }) => {
     const balance = balanceOf(item);
     const needsReminder = balance > REMINDER_THRESHOLD;
+    const disabled = item.reminderEnabled === false;
+    const alreadySent = needsReminder && item.smsSentForCurrentDebt;
 
     return (
       <TouchableOpacity
@@ -63,6 +81,37 @@ export default function DebtorsScreen({ navigation }) {
             {item.phone ? toFa(item.phone) : 'بدون شماره تلفن'}
           </Text>
         </View>
+
+        {/* Silent reminder: ✓ = already sent for this debt, faded = disabled
+            for this customer, plane = ready to send. */}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={[
+            styles.sendBtn,
+            (disabled || alreadySent) && styles.sendBtnDone,
+          ]}
+          hitSlop={6}
+          onPress={() => sendFromRow(item)}
+        >
+          <Ionicons
+            name={
+              disabled
+                ? 'paper-plane-outline'
+                : alreadySent
+                  ? 'checkmark-circle-outline'
+                  : 'paper-plane'
+            }
+            size={19}
+            color={
+              disabled
+                ? colors.muted
+                : alreadySent
+                  ? colors.green
+                  : colors.primary
+            }
+          />
+        </TouchableOpacity>
+
         <View style={styles.amountCol}>
           <Text style={[styles.amount, { color: colors.red }]} numberOfLines={1}>
             {money(balance)}
@@ -168,6 +217,16 @@ const styles = StyleSheet.create({
   cardMain: { flex: 1, marginLeft: 12 },
   name: { fontSize: 15.5, fontWeight: '800', color: colors.text, textAlign: 'right' },
   phone: { fontSize: 12, color: colors.muted, marginTop: 4, textAlign: 'right' },
+  sendBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+    marginLeft: 6,
+  },
+  sendBtnDone: { backgroundColor: colors.border },
   amountCol: { alignItems: 'flex-end', minWidth: 84 },
   amount: { fontSize: 15, fontWeight: '800' },
   amountLabel: { fontSize: 10.5, fontWeight: '700', marginTop: 3, ...rtl },

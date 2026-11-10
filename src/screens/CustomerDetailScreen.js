@@ -1,10 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   Linking,
-  Platform,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -23,8 +21,7 @@ import {
   TOMAN_PER_UNIT,
 } from '../theme';
 import { dateTime, money, toFa } from '../utils/format';
-import { buildReminder } from '../utils/smsParser';
-import { reminderAction } from '../utils/reminderGate';
+import { sendManualReminder } from '../utils/reminderSend';
 import {
   balanceOf,
   TRANSACTION,
@@ -62,11 +59,6 @@ export default function CustomerDetailScreen({ navigation, route }) {
     editing: null,
   });
 
-  // Auto-reminder bookkeeping: the persistent latch lives on the customer
-  // (`smsSentForCurrentDebt`); these refs only guard the in-flight timer.
-  const timerRef = useRef(null);
-  const sendingRef = useRef(false);
-
   const balance = balanceOf(contact);
   const settingsReady = Boolean(settings.myName && settings.cardNumber);
 
@@ -94,7 +86,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
     return { paid, credited };
   }, [transactions]);
 
-  const openSettings = useCallback(() => navigation.navigate('Settings'), [navigation]);
+  const openSettings = () => navigation.navigate('Settings');
 
   // Quick actions: phone icon → dialer, SMS icon → messaging app.
   const openPhoneApp = async (scheme) => {
@@ -125,122 +117,24 @@ export default function CustomerDetailScreen({ navigation, route }) {
   const callCustomer = () => openPhoneApp('tel');
   const smsCustomer = () => openPhoneApp('sms');
 
-  const sendReminder = useCallback(
-    async ({ silent = false } = {}) => {
-      if (!contact) return;
-
-      if (!settings.myName || !settings.cardNumber) {
-        if (silent) return;
-        Alert.alert(
-          'نیاز به اطلاعات فروشگاه',
-          'برای ارسال یادآوری، نام خود و شماره کارت را در تنظیمات وارد کنید.',
-          [
-            { text: 'بعداً', style: 'cancel' },
-            { text: 'باز کردن تنظیمات', onPress: openSettings },
-          ],
-        );
-        return;
-      }
-
-      const phone = (contact.phone || '').replace(/[^0-9+]/g, '');
-      if (!phone) {
-        if (silent) return;
-        Alert.alert(
-          'شماره موبایل ثبت نشده',
-          'برای ارسال یادآوری، شماره موبایل این مشتری را وارد کنید.',
-          [
-            { text: 'انصراف', style: 'cancel' },
-            {
-              text: 'ویرایش مشتری',
-              onPress: () =>
-                navigation.navigate('CustomerForm', { contactId: contact.id }),
-            },
-          ],
-        );
-        return;
-      }
-
-      // The exact Persian template the shop owner asked for.
-      const message = buildReminder({
-        customerName: contact.name,
-        amount: balance,
-        cardNumber: settings.cardNumber,
-        myName: settings.myName,
-      });
-
-      // sms: with body= opens the messaging app pre-filled.
-      // iOS wants "&body=", Android wants "?body=".
-      const separator = Platform.OS === 'ios' ? '&' : '?';
-      const url = `sms:${phone}${separator}body=${encodeURIComponent(message)}`;
-
-      let opened = false;
-      try {
-        // No canOpenURL() check: Android 11 package visibility makes it unreliable.
-        await Linking.openURL(url);
-        opened = true;
-      } catch (error) {
-        if (!silent) {
-          try {
-            await Share.share({ message });
-            opened = true;
-          } catch (shareError) {
-            Alert.alert(
-              'باز کردن پیامک ممکن نشد',
-              'هیچ برنامه پیام‌رسانی روی این گوشی پیدا نشد.',
-            );
-          }
-        }
-      }
-
-      // Latch the customer: this debt's reminder has been handed to the user.
-      // Cleared automatically once the balance drops back under the threshold.
-      if (opened && balance > REMINDER_THRESHOLD) {
-        setSmsSentForCurrentDebt(contact.id, true);
-      }
-    },
-    [contact, balance, settings, navigation, openSettings, setSmsSentForCurrentDebt],
-  );
-
-  // Automatic reminder — one SMS per debt crossing, never a stream of them:
-  //   balance goes above 1,000,000  → send once, then latch `smsSentForCurrentDebt`
-  //   balance drops to/below 1,000,000 (customer paid) → clear the latch
-  //   balance goes above again later (new debt) → send exactly one more time
-  // The latch is persisted on the customer, so closing/reopening the screen or
-  // restarting the app never re-sends for the same debt.
-  useEffect(() => {
-    if (!contact) return undefined;
-
-    const action = reminderAction({
+  // Manual reminder — the ONLY trigger (owner decision 2026-11-10: no
+  // auto-send anywhere, this screen included). Silent-first via SmsManager:
+  // no messaging app, no Send button. All guards (per-customer switch, shop
+  // details, phone, once-per-debt latch) and fallbacks live in the shared
+  // sender used by both this screen and the Debtors screen.
+  const sendReminder = () =>
+    sendManualReminder({
+      contact,
       balance,
-      sentForCurrentDebt: contact.smsSentForCurrentDebt,
-      settingsReady,
-      hasPhone: Boolean((contact.phone || '').replace(/[^0-9+]/g, '')),
-      threshold: REMINDER_THRESHOLD,
+      settings,
+      setSmsSentForCurrentDebt,
+      navigate: navigation.navigate,
     });
 
-    if (action === 'reset') {
-      setSmsSentForCurrentDebt(contact.id, false);
-      return undefined;
-    }
-    if (action !== 'send') return undefined;
-    if (sendingRef.current || timerRef.current) return undefined;
-
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      sendingRef.current = true;
-      sendReminder({ silent: true }).finally(() => {
-        sendingRef.current = false;
-      });
-    }, 900);
-
-    // Cancel a pending send when the balance/deps change or the screen unmounts.
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [contact, balance, settingsReady, sendReminder, setSmsSentForCurrentDebt]);
+  // The once-per-debt latch itself (`smsSentForCurrentDebt`) is cleared by
+  // ContactsContext on every transaction change (settleReminderLatch), so a
+  // payment — even one auto-imported from a bank SMS — re-arms the button
+  // without any screen needing to be open.
 
   if (!contact) {
     return (
@@ -496,9 +390,11 @@ export default function CustomerDetailScreen({ navigation, route }) {
             <View style={styles.reminderTextWrap}>
               <Text style={styles.reminderTitle}>بدهی بالای {money(REMINDER_THRESHOLD * TOMAN_PER_UNIT)} تومان</Text>
               <Text style={styles.reminderText}>
-                {settingsReady
-                  ? 'پیامک یادآوری به‌صورت خودکار آماده می‌شود.'
-                  : 'برای ارسال یادآوری، نام و شماره کارت را در تنظیمات وارد کنید.'}
+                {contact.reminderEnabled === false
+                  ? 'ارسال پیامک یادآوری برای این مشتری خاموش شده است (از فرم مشتری).'
+                  : settingsReady
+                    ? 'با دکمه ارسال، پیامک بی‌صدا و بدون باز شدن برنامه پیامک فرستاده می‌شود.'
+                    : 'برای ارسال یادآوری، نام و شماره کارت را در تنظیمات وارد کنید.'}
               </Text>
             </View>
             <TouchableOpacity
@@ -529,7 +425,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
           />
         </View>
 
-        {balance > 0 ? (
+        {balance > 0 && contact.reminderEnabled !== false ? (
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.reminderGhost}

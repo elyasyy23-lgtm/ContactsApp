@@ -65,6 +65,11 @@ export default function HomeScreen({ navigation }) {
     ]);
   };
 
+  // Reminders are MANUAL-ONLY (owner decision 2026-11-10): no auto-send on
+  // app open, no background sweep. The send buttons live on the customer
+  // page and in the Debtors list; every guard and the silent SmsManager
+  // transport are shared in src/utils/reminderSend.js.
+
   const openDetail = (item) =>
     navigation.navigate('CustomerDetail', { contactId: item.id });
 
