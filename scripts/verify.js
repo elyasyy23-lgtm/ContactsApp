@@ -106,6 +106,12 @@ Module._extensions['.js'] = function (module, filename) {
 const fmt = require(path.join(srcDir, 'utils/format.js'));
 const sms = require(path.join(srcDir, 'utils/smsParser.js'));
 const matcher = require(path.join(srcDir, 'utils/smsMatch.js'));
+const gate = require(path.join(srcDir, 'utils/reminderGate.js'));
+const trial = require(path.join(srcDir, 'utils/trial.js'));
+const profileUtils = require(path.join(srcDir, 'utils/profiles.js'));
+const grouping = require(path.join(srcDir, 'utils/grouping.js'));
+const calc = require(path.join(srcDir, 'utils/calc.js'));
+const backup = require(path.join(srcDir, 'utils/backup.js'));
 
 try {
   assert.strictEqual(fmt.group(1234567), '1,234,567', 'group() stays Latin');
@@ -116,19 +122,39 @@ try {
   assert.strictEqual(fmt.parseAmount('1,250,000'), 1250000);
   assert.strictEqual(fmt.groupCard('6037997412345678'), '6037 9974 1234 5678');
 
+  // ── money() must print the full value, never a shortened one ─────────────
+  assert.strictEqual(fmt.money(308000), '۳۰۸٬۰۰۰', 'money() shows every digit');
+  assert.strictEqual(fmt.money(308), '۳۰۸', 'money() never invents thousands');
+
+  // ── amounts are stored verbatim: no scaling of small numbers ─────────────
+  assert.strictEqual(fmt.parseAmount('308'), 308, 'typed 308 stays 308');
+  assert.strictEqual(fmt.parseAmount('۳۰۸'), 308);
+  assert.strictEqual(fmt.money(fmt.parseAmount('308')), '۳۰۸');
+  assert.strictEqual(typeof fmt.applyAmountRule, 'undefined', 'the ×1000 rule is gone');
+
+  // SMS amounts land on the same ledger unit the shop types by hand:
+  // Rial ÷ 10 = Toman, then ÷ 1,000 = the number shown in the app.
   const rial = sms.parseBankSms('مبلغ 12,500,000 ریال واریز به حساب شما، کارت *1234، بانک ملت');
   assert.strictEqual(rial.ok, true);
-  assert.strictEqual(rial.amountToman, 1250000, 'Rial SMS → Toman');
+  assert.strictEqual(rial.amount, 1250, '12,500,000 Rial → 1,250 units (1,250,000 Toman)');
+  assert.strictEqual(rial.tomanAmount, 1250000, 'plain Toman value also reported');
   assert.strictEqual(rial.bank, 'ملت');
   assert.strictEqual(rial.card, '1234');
 
+  const rialRule = sms.parseBankSms('مبلغ ۱٬۹۰۰٬۰۰۰ ریال واریز به حساب شما، بانک ملت');
+  assert.strictEqual(rialRule.amount, 190, '1,900,000 Rial → 190,000 Toman → 190, like typing 190');
+
+  const smallRial = sms.parseBankSms('مبلغ 9,000 ریال واریز شد، بانک ملت');
+  assert.strictEqual(smallRial.amount, 1, '900 Toman rounds to 1 unit');
+
   const toman = sms.parseBankSms('برداشت 250,000 تومان از حساب شما');
-  assert.strictEqual(toman.amountToman, 250000);
+  assert.strictEqual(toman.amount, 250);
+  assert.strictEqual(toman.tomanAmount, 250000);
   assert.strictEqual(toman.direction, 'out');
 
   const reminder = sms.buildReminder({
     customerName: 'علی رضایی',
-    amountToman: 1250000,
+    amount: 1250, // ledger units → 1,250,000 Toman for the customer
     cardNumber: '6037997412345678',
     myName: 'محمد احمدی',
   });
@@ -138,9 +164,43 @@ try {
     'جهت تسویه، لطفاً مبلغ را به شماره کارت زیر واریز نمایید:',
     '6037 9974 1234 5678',
     'به نام: محمد احمدی',
+    'لطفاً پس از واریز، تصویر رسید تراکنش را برای این شماره ارسال نمایید.',
     'با تشکر از همکاری شما',
   ].join('\n');
   assert.strictEqual(reminder, expected, 'reminder template must stay verbatim');
+  assert.ok(!/ابقففل/.test(reminder), 'no leftover placeholder in the reminder');
+  assert.ok(reminder.includes('به نام: محمد احمدی'), 'sender name comes from settings');
+
+  // ── 7-day trial: starts on first launch, locks after 7 days ──────────────
+  const T0 = 1700000000000;
+  assert.strictEqual(trial.TRIAL_DAYS, 7);
+  assert.strictEqual(trial.TRIAL_MS, 7 * trial.DAY_MS);
+
+  const notStarted = trial.trialInfo(0, T0);
+  assert.strictEqual(notStarted.started, false, 'no recorded start → not started yet');
+  assert.strictEqual(notStarted.active, false);
+
+  const fresh = trial.trialInfo(T0, T0);
+  assert.strictEqual(fresh.active, true, 'first launch → trial active');
+  assert.strictEqual(fresh.daysLeft, 7, 'day one shows 7 days left');
+  assert.strictEqual(fresh.endsAt, T0 + trial.TRIAL_MS);
+
+  const day6 = trial.trialInfo(T0, T0 + 6 * trial.DAY_MS + 3600000);
+  assert.strictEqual(day6.active, true);
+  assert.strictEqual(day6.daysLeft, 1, 'a partial last day still counts as 1');
+
+  const exactEnd = trial.trialInfo(T0, T0 + trial.TRIAL_MS);
+  assert.strictEqual(exactEnd.active, false, 'exactly 7 days → trial over');
+  assert.strictEqual(exactEnd.expired, true);
+  assert.strictEqual(exactEnd.daysLeft, 0);
+
+  assert.strictEqual(trial.trialInfo(T0, T0 + 30 * trial.DAY_MS).expired, true, 'stays over');
+
+  const clockBack = trial.trialInfo(T0, T0 - 3 * trial.DAY_MS);
+  assert.strictEqual(clockBack.daysLeft, 7, 'a backwards clock cannot extend the trial');
+
+  const seenClamp = trial.trialInfo(T0, Math.max(T0 - 3 * trial.DAY_MS, T0 + trial.TRIAL_MS));
+  assert.strictEqual(seenClamp.expired, true, 'max(now, lastSeenAt) keeps it expired');
 
   // ── SMS → customer matching (auto payment recording) ────────────────────
   const customers = [
@@ -212,6 +272,213 @@ try {
     [{ id: '4', name: 'سارا نادری', cardNumber: '۶۰۳۷۹۹۷۴۱۲۳۴۵۶۷۸' }],
   );
   assert.strictEqual(persianCard.match.id, '4', 'Persian-digit card numbers match');
+
+  // ── a deposit SMS from Hanieh lands on Hanieh as a payment ──────────────
+  const hanieh = matcher.matchSms(
+    {
+      id: 'h',
+      address: 'BankMellat',
+      timestamp: 8,
+      body: 'واریز ۱٬۹۰۰٬۰۰۰ ریال به حساب شما، از هانیه، بانک ملت',
+    },
+    [{ id: '5', name: 'هانیه', cardNumber: '' }],
+  );
+  assert.strictEqual(hanieh.confidence, 'high', 'full name in the SMS → high confidence');
+  assert.strictEqual(hanieh.match && hanieh.match.id, '5', 'attributed to Hanieh');
+  assert.strictEqual(hanieh.parsed.amount, 190, 'the 190 amount is what Hanieh pays');
+
+  const taMarbuta = matcher.matchSms(
+    { id: 'h2', address: 'BankMellat', timestamp: 9, body: 'واریز ۵۰۰,۰۰۰ ریال، هانیة، بانک ملت' },
+    [{ id: '5', name: 'هانیه', cardNumber: '' }],
+  );
+  assert.strictEqual(taMarbuta.match && taMarbuta.match.id, '5', 'ة/ه spelling still matches');
+
+  // ── automatic reminder gate: once per debt, reset on payment ─────────────
+  const ready = { settingsReady: true, hasPhone: true };
+  assert.strictEqual(gate.REMINDER_THRESHOLD, 1000, 'threshold is in ledger units');
+  assert.strictEqual(gate.TOMAN_PER_UNIT, 1000);
+  assert.strictEqual(
+    gate.reminderAction({ balance: 1001, sentForCurrentDebt: false, ...ready }),
+    'send',
+    'just above 1,000 units (1,000,000 Toman) → send',
+  );
+  assert.strictEqual(
+    gate.reminderAction({ balance: 5000, sentForCurrentDebt: true, ...ready }),
+    'none',
+    'no repeat while the debt stays above the threshold',
+  );
+  assert.strictEqual(
+    gate.reminderAction({ balance: 500, sentForCurrentDebt: true, ...ready }),
+    'reset',
+    'paying below the threshold clears the latch',
+  );
+  assert.strictEqual(
+    gate.reminderAction({ balance: 1000, sentForCurrentDebt: true, ...ready }),
+    'reset',
+    'exactly 1,000 units counts as "not above"',
+  );
+  assert.strictEqual(
+    gate.reminderAction({ balance: 2000, sentForCurrentDebt: false, settingsReady: false, hasPhone: true }),
+    'none',
+    'missing shop details → no send and no latch',
+  );
+  assert.strictEqual(
+    gate.reminderAction({ balance: 2000, sentForCurrentDebt: false, settingsReady: true, hasPhone: false }),
+    'none',
+    'missing phone → no send and no latch',
+  );
+
+  // Full lifecycle: high → high → paid → high again → high.
+  let latched = false;
+  const step = (balance) => {
+    const action = gate.reminderAction({ balance, sentForCurrentDebt: latched, ...ready });
+    if (action === 'send') latched = true;
+    if (action === 'reset') latched = false;
+    return action;
+  };
+  assert.strictEqual(step(1200), 'send', '1st crossing → one SMS');
+  assert.strictEqual(step(1500), 'none', 'still above → silent');
+  assert.strictEqual(step(3300), 'none', 'more debt, same crossing → silent');
+  assert.strictEqual(step(0), 'reset', 'customer pays → latch cleared');
+  assert.strictEqual(step(1500), 'send', 'new debt → exactly one more SMS');
+  assert.strictEqual(step(1900), 'none', 'and silent afterwards');
+  // ── customer categories (profiles) ───────────────────────────────────────
+  assert.strictEqual(profileUtils.PROFILE_NAME_MAX, 24);
+  assert.strictEqual(profileUtils.cleanProfileName('  فروشگاه   اصلی '), 'فروشگاه اصلی');
+  assert.strictEqual(profileUtils.cleanProfileName('   '), '', 'blank name is rejected');
+  assert.strictEqual(
+    profileUtils.cleanProfileName('x'.repeat(40)).length,
+    profileUtils.PROFILE_NAME_MAX,
+    'names are capped',
+  );
+
+  const seeded = [
+    { id: 'a', name: 'فروشگاه' },
+    { id: 'b', name: 'شخصی' },
+  ];
+  assert.strictEqual(profileUtils.isDuplicateProfile(seeded, ' فروشگاه '), true);
+  assert.strictEqual(
+    profileUtils.isDuplicateProfile(seeded, 'فروشگاه', 'a'),
+    false,
+    'renaming a category to its own name is allowed',
+  );
+  assert.strictEqual(profileUtils.isDuplicateProfile(seeded, 'انبار'), false);
+  assert.strictEqual(profileUtils.isDuplicateProfile(seeded, '   '), false);
+
+  const mixed = [
+    { id: '1', profileId: 'a' },
+    { id: '2', profileId: '' },
+    { id: '3' },
+    { id: '4', profileId: 'a' },
+  ];
+  assert.deepStrictEqual(profileUtils.profileCounts(mixed), { a: 2, '': 2 });
+  assert.deepStrictEqual(
+    profileUtils.contactsOfProfile(mixed, 'a').map((c) => c.id),
+    ['1', '4'],
+  );
+  assert.deepStrictEqual(
+    profileUtils.contactsOfProfile(mixed, '').map((c) => c.id),
+    ['2', '3'],
+    'missing profileId counts as بدون دسته',
+  );
+
+  // ── dynamic Persian letter chips + alphabetical sections ────────────────
+  const grouped = [
+    { id: '1', letter: 'ب' },
+    { id: '2', letter: 'ا' },
+    { id: '3', letter: 'ب' },
+    { id: '4', letter: '?' },
+  ];
+  assert.deepStrictEqual(
+    grouping.lettersOf(grouped),
+    ['ا', 'ب', '?'],
+    'only present letters, in Persian alphabet order',
+  );
+  assert.deepStrictEqual(grouping.lettersOf([]), [], 'no customers → no chips');
+  const buckets = grouping.letterBuckets(grouped);
+  assert.deepStrictEqual(buckets.map((b) => b.title), ['ا', 'ب', '?']);
+  assert.strictEqual(buckets[1].data.length, 2);
+  assert.deepStrictEqual(buckets[0].data.map((c) => c.id), ['2']);
+  const single = grouping.letterBuckets([{ id: '9', letter: 'م' }]);
+  assert.strictEqual(single.length, 1, 'one letter → one section');
+  assert.strictEqual(single[0].title, 'م');
+
+  // ── financial calculator engine ─────────────────────────────────────────
+  assert.strictEqual(calc.evaluate('2+3'), 5);
+  assert.strictEqual(calc.evaluate('10-4'), 6);
+  assert.strictEqual(calc.evaluate('10/4'), 2.5);
+  assert.strictEqual(calc.evaluate('(2+3)*4'), 20);
+  assert.strictEqual(calc.evaluate('-5+3'), -2, 'unary minus');
+  assert.strictEqual(calc.evaluate('۱+۲'), 3, 'Persian digits accepted');
+  assert.strictEqual(calc.evaluate('200+10%'), 220, 'percent applies to the left operand');
+  assert.strictEqual(calc.evaluate('200-10%'), 180);
+  assert.strictEqual(calc.evaluate('200×10%'), 20, '× and % as fraction');
+  assert.strictEqual(calc.evaluate('50%'), 0.5, 'bare percent is a fraction');
+  assert.throws(() => calc.evaluate('10/0'), null, 'division by zero errors');
+  assert.throws(() => calc.evaluate('2+'), null, 'dangling operator errors');
+  assert.throws(() => calc.evaluate('(1+2'), null, 'unclosed paren errors');
+  assert.strictEqual(calc.formatCalcResult(1234567.5), '۱٬۲۳۴٬۵۶۷٫۵');
+  assert.strictEqual(calc.formatCalcResult(0.1 + 0.2), '۰٫۳', 'float noise stripped');
+  assert.strictEqual(calc.formatCalcResult(-1234), '-۱٬۲۳۴');
+  assert.strictEqual(calc.formatExpression('12*3/4'), '۱۲×۳÷۴');
+  assert.strictEqual(calc.formatCalcResult(NaN), null);
+
+  // ── backup payload / restore parsing / CSV ──────────────────────────────
+  const sampleContacts = [
+    {
+      id: '1',
+      name: 'علی رضایی',
+      phone: '09121234567',
+      profileId: 'p1',
+      transactions: [
+        { type: 'credit', amount: '100' },
+        { type: 'payment', amount: '40' },
+      ],
+    },
+    { id: '2', name: 'مریم کریمی', phone: '', profileId: '', transactions: [] },
+  ];
+  const sampleProfiles = [{ id: 'p1', name: 'فروشگاه' }];
+  const sampleSettings = {
+    myName: 'محمد احمدی',
+    cardNumber: '6037997412345678',
+    shopName: 'سوپرمارکت احمدی',
+  };
+
+  const payload = backup.buildBackup({
+    contacts: sampleContacts,
+    profiles: sampleProfiles,
+    settings: sampleSettings,
+  });
+  const restored = backup.parseBackup(payload);
+  assert.strictEqual(restored.ok, true, 'own payload restores');
+  assert.strictEqual(restored.counts.contacts, 2);
+  assert.strictEqual(restored.counts.transactions, 2);
+  assert.strictEqual(restored.profiles.length, 1);
+  assert.strictEqual(restored.settings.cardNumber, '6037997412345678');
+  assert.strictEqual(restored.contacts[0].name, 'علی رضایی');
+
+  const legacy = backup.parseBackup(JSON.stringify(sampleContacts));
+  assert.strictEqual(legacy.ok, true, 'bare contacts array (legacy) restores');
+  assert.strictEqual(legacy.profiles, null, 'legacy file keeps current categories');
+  assert.strictEqual(legacy.settings, null);
+
+  const badShape = backup.parseBackup('{"foo": 1}');
+  assert.strictEqual(badShape.ok, false);
+  assert.strictEqual(badShape.reason, 'shape');
+  const badJson = backup.parseBackup('this is not json');
+  assert.strictEqual(badJson.ok, false);
+  assert.strictEqual(badJson.reason, 'json');
+
+  const csv = backup.toCsv(sampleContacts, sampleProfiles);
+  assert.ok(csv.startsWith('\uFEFF'), 'CSV has a BOM for Excel');
+  assert.ok(csv.includes('نام,شماره تماس,دسته,کل بدهی,کل دریافت,مانده'));
+  assert.ok(csv.includes('علی رضایی'), 'customer rows included');
+  assert.ok(csv.includes('فروشگاه'), 'category name resolved');
+  assert.ok(csv.includes('جمع کل'), 'totals row included');
+  const aliRow = csv.split('\n').find((l) => l.includes('علی'));
+  assert.ok(aliRow.endsWith(',100,40,60'), 'credited − paid = net per row');
+  assert.ok(backup.backupFileName('eKhata-backup', 'json').startsWith('eKhata-backup-'));
+
   console.log('unit checks: ok');
 } catch (error) {
   failures++;

@@ -13,10 +13,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, shadows } from '../theme';
-import { toFa } from '../utils/format';
 import { useContact, useContacts } from '../store/ContactsContext';
 import { usePremium } from '../store/PremiumContext';
-import { IconButton, ScreenHeader } from '../components/ui';
+import { useProfiles } from '../store/ProfilesContext';
+import { Chip, IconButton, ScreenHeader } from '../components/ui';
 
 function Field({ label, icon, hint, ...props }) {
   return (
@@ -37,16 +37,21 @@ function Field({ label, icon, hint, ...props }) {
 
 export default function CustomerFormScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { contactId } = route.params || {};
+  const { contactId, profileId: presetProfileId } = route.params || {};
   const existing = useContact(contactId);
   const { contacts, addContact, updateContact, deleteContact } = useContacts();
-  const { isLimitReached, freeLimit } = usePremium();
+  const { locked } = usePremium();
+  const { profiles } = useProfiles();
 
   const [name, setName] = useState(existing ? existing.name : '');
   const [phone, setPhone] = useState(existing ? existing.phone : '');
   const [email, setEmail] = useState(existing ? existing.email : '');
   const [address, setAddress] = useState(existing ? existing.address : '');
   const [cardNumber, setCardNumber] = useState(existing ? existing.cardNumber : '');
+  // '' = بدون دسته. A new customer opened from a category starts pre-filled.
+  const [profileId, setProfileId] = useState(
+    existing ? existing.profileId || '' : presetProfileId || '',
+  );
 
   const save = () => {
     if (!name.trim()) {
@@ -59,6 +64,7 @@ export default function CustomerFormScreen({ navigation, route }) {
       email: email.trim(),
       address: address.trim(),
       cardNumber: cardNumber.replace(/\D/g, ''),
+      profileId: profiles.some((p) => p.id === profileId) ? profileId : '',
     };
 
     if (existing) {
@@ -67,15 +73,11 @@ export default function CustomerFormScreen({ navigation, route }) {
       return;
     }
 
-    if (isLimitReached(contacts.length)) {
-      Alert.alert(
-        'محدودیت نسخه رایگان',
-        `در نسخه رایگان حداکثر ${toFa(freeLimit)} مشتری می‌توانید ثبت کنید. برای افزودن مشتری نامحدود، نسخه ویژه را فعال کنید.`,
-        [
-          { text: 'بعداً', style: 'cancel' },
-          { text: 'نسخه ویژه', onPress: () => navigation.navigate('Premium') },
-        ],
-      );
+    if (locked) {
+      Alert.alert('دوره آزمایشی به پایان رسید', 'برای ثبت مشتری جدید، نسخه کامل را فعال کنید.', [
+        { text: 'بعداً', style: 'cancel' },
+        { text: 'نسخه ویژه', onPress: () => navigation.navigate('Premium') },
+      ]);
       return;
     }
 
@@ -161,6 +163,30 @@ export default function CustomerFormScreen({ navigation, route }) {
               placeholder="آدرس مشتری"
               multiline
             />
+
+            <View style={styles.profileField}>
+              <Text style={styles.label}>دسته مشتری</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.profileChips}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Chip
+                  label="بدون دسته"
+                  active={!profileId}
+                  onPress={() => setProfileId('')}
+                />
+                {profiles.map((profile) => (
+                  <Chip
+                    key={profile.id}
+                    label={profile.name}
+                    active={profileId === profile.id}
+                    onPress={() => setProfileId(profile.id)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
           </View>
 
           <TouchableOpacity activeOpacity={0.88} style={styles.saveBtn} onPress={save}>
@@ -196,6 +222,8 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   field: { marginBottom: 14 },
+  profileField: { marginBottom: 2 },
+  profileChips: { paddingBottom: 2 },
   label: { fontSize: 12.5, fontWeight: '700', color: colors.textSoft, marginBottom: 7, ...rtl },
   inputWrap: {
     flexDirection: 'row-reverse',

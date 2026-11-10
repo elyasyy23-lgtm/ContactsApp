@@ -12,9 +12,19 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, faText, radius, rtl, rtlCenter, shadows, REMINDER_THRESHOLD } from '../theme';
+import {
+  colors,
+  faText,
+  radius,
+  rtl,
+  rtlCenter,
+  shadows,
+  REMINDER_THRESHOLD,
+  TOMAN_PER_UNIT,
+} from '../theme';
 import { dateTime, money, toFa } from '../utils/format';
 import { buildReminder } from '../utils/smsParser';
+import { reminderAction } from '../utils/reminderGate';
 import {
   balanceOf,
   TRANSACTION,
@@ -22,6 +32,7 @@ import {
   useContacts,
 } from '../store/ContactsContext';
 import { useSettings } from '../store/SettingsContext';
+import { useProfiles } from '../store/ProfilesContext';
 import {
   ActionButton,
   Avatar,
@@ -35,9 +46,15 @@ export default function CustomerDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { contactId } = route.params || {};
   const contact = useContact(contactId);
-  const { addTransaction, updateTransaction, deleteTransaction, deleteContact } =
-    useContacts();
+  const {
+    addTransaction,
+    updateTransaction,
+    deleteTransaction,
+    deleteContact,
+    setSmsSentForCurrentDebt,
+  } = useContacts();
   const { settings } = useSettings();
+  const { profileById } = useProfiles();
 
   const [sheet, setSheet] = useState({
     visible: false,
@@ -45,10 +62,10 @@ export default function CustomerDetailScreen({ navigation, route }) {
     editing: null,
   });
 
-  // Auto-reminder bookkeeping: fire once per customer+amount, never twice for
-  // the same threshold crossing, and never after unmount.
-  const firedRef = useRef(null);
+  // Auto-reminder bookkeeping: the persistent latch lives on the customer
+  // (`smsSentForCurrentDebt`); these refs only guard the in-flight timer.
   const timerRef = useRef(null);
+  const sendingRef = useRef(false);
 
   const balance = balanceOf(contact);
   const settingsReady = Boolean(settings.myName && settings.cardNumber);
@@ -78,6 +95,35 @@ export default function CustomerDetailScreen({ navigation, route }) {
   }, [transactions]);
 
   const openSettings = useCallback(() => navigation.navigate('Settings'), [navigation]);
+
+  // Quick actions: phone icon → dialer, SMS icon → messaging app.
+  const openPhoneApp = async (scheme) => {
+    const phone = (contact.phone || '').replace(/[^0-9+]/g, '');
+    if (!phone) {
+      Alert.alert(
+        'شماره موبایل ثبت نشده',
+        'برای تماس یا پیامک، شماره موبایل این مشتری را وارد کنید.',
+        [
+          { text: 'انصراف', style: 'cancel' },
+          {
+            text: 'ویرایش مشتری',
+            onPress: () =>
+              navigation.navigate('CustomerForm', { contactId: contact.id }),
+          },
+        ],
+      );
+      return;
+    }
+    try {
+      // Android 11 package visibility makes canOpenURL() unreliable — just try.
+      await Linking.openURL(`${scheme}:${phone}`);
+    } catch {
+      Alert.alert('باز نشد', 'برنامه‌ای برای تماس یا پیامک روی این گوشی پیدا نشد.');
+    }
+  };
+
+  const callCustomer = () => openPhoneApp('tel');
+  const smsCustomer = () => openPhoneApp('sms');
 
   const sendReminder = useCallback(
     async ({ silent = false } = {}) => {
@@ -117,7 +163,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
       // The exact Persian template the shop owner asked for.
       const message = buildReminder({
         customerName: contact.name,
-        amountToman: balance,
+        amount: balance,
         cardNumber: settings.cardNumber,
         myName: settings.myName,
       });
@@ -127,55 +173,74 @@ export default function CustomerDetailScreen({ navigation, route }) {
       const separator = Platform.OS === 'ios' ? '&' : '?';
       const url = `sms:${phone}${separator}body=${encodeURIComponent(message)}`;
 
+      let opened = false;
       try {
         // No canOpenURL() check: Android 11 package visibility makes it unreliable.
         await Linking.openURL(url);
+        opened = true;
       } catch (error) {
-        if (silent) return;
-        try {
-          await Share.share({ message });
-        } catch (shareError) {
-          Alert.alert(
-            'باز کردن پیامک ممکن نشد',
-            'هیچ برنامه پیام‌رسانی روی این گوشی پیدا نشد.',
-          );
+        if (!silent) {
+          try {
+            await Share.share({ message });
+            opened = true;
+          } catch (shareError) {
+            Alert.alert(
+              'باز کردن پیامک ممکن نشد',
+              'هیچ برنامه پیام‌رسانی روی این گوشی پیدا نشد.',
+            );
+          }
         }
       }
+
+      // Latch the customer: this debt's reminder has been handed to the user.
+      // Cleared automatically once the balance drops back under the threshold.
+      if (opened && balance > REMINDER_THRESHOLD) {
+        setSmsSentForCurrentDebt(contact.id, true);
+      }
     },
-    [contact, balance, settings, navigation, openSettings],
+    [contact, balance, settings, navigation, openSettings, setSmsSentForCurrentDebt],
   );
 
-  // Automatic reminder: as soon as a customer's debt passes 1,000,000 Toman —
-  // either on opening the page or right after a transaction pushes it over —
-  // the SMS composer opens once with the Persian message pre-filled.
+  // Automatic reminder — one SMS per debt crossing, never a stream of them:
+  //   balance goes above 1,000,000  → send once, then latch `smsSentForCurrentDebt`
+  //   balance drops to/below 1,000,000 (customer paid) → clear the latch
+  //   balance goes above again later (new debt) → send exactly one more time
+  // The latch is persisted on the customer, so closing/reopening the screen or
+  // restarting the app never re-sends for the same debt.
   useEffect(() => {
-    if (!contact || !settingsReady) return undefined;
-    if (balance <= REMINDER_THRESHOLD) {
-      firedRef.current = null;
+    if (!contact) return undefined;
+
+    const action = reminderAction({
+      balance,
+      sentForCurrentDebt: contact.smsSentForCurrentDebt,
+      settingsReady,
+      hasPhone: Boolean((contact.phone || '').replace(/[^0-9+]/g, '')),
+      threshold: REMINDER_THRESHOLD,
+    });
+
+    if (action === 'reset') {
+      setSmsSentForCurrentDebt(contact.id, false);
       return undefined;
     }
-    const key = `${contact.id}:${balance}`;
-    if (firedRef.current === key || timerRef.current) return undefined;
+    if (action !== 'send') return undefined;
+    if (sendingRef.current || timerRef.current) return undefined;
 
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      firedRef.current = key;
-      sendReminder({ silent: true });
+      sendingRef.current = true;
+      sendReminder({ silent: true }).finally(() => {
+        sendingRef.current = false;
+      });
     }, 900);
 
-    return undefined;
-  }, [contact, balance, settingsReady, sendReminder]);
-
-  // Cancel a pending auto-reminder when leaving the screen.
-  useEffect(
-    () => () => {
+    // Cancel a pending send when the balance/deps change or the screen unmounts.
+    return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-    },
-    [],
-  );
+    };
+  }, [contact, balance, settingsReady, sendReminder, setSmsSentForCurrentDebt]);
 
   if (!contact) {
     return (
@@ -190,6 +255,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
     );
   }
 
+  const profile = contact ? profileById(contact.profileId || '') : null;
   const needsReminder = balance > REMINDER_THRESHOLD;
 
   const openSheet = (mode, editing = null) =>
@@ -219,6 +285,24 @@ export default function CustomerDetailScreen({ navigation, route }) {
     closeSheet();
   };
 
+  // Long-press on a transaction row: confirm, then remove that one transaction.
+  const confirmDeleteTransaction = (item) => {
+    const isPayment = item.type === TRANSACTION.PAYMENT;
+    Alert.alert(
+      'حذف تراکنش',
+      `${isPayment ? 'دریافت وجه' : 'ثبت بدهی'} به مبلغ ${money(item.amount)} تومان حذف شود؟`,
+      [
+        { text: 'انصراف', style: 'cancel' },
+        { text: 'ویرایش', onPress: () => openSheet(item.type, item) },
+        {
+          text: 'حذف',
+          style: 'destructive',
+          onPress: () => deleteTransaction(contact.id, item.id),
+        },
+      ],
+    );
+  };
+
   const confirmDeleteContact = () => {
     Alert.alert('حذف مشتری', `«${contact.name}» با تمام تراکنش‌ها حذف شود؟`, [
       { text: 'انصراف', style: 'cancel' },
@@ -242,8 +326,10 @@ export default function CustomerDetailScreen({ navigation, route }) {
       <TouchableOpacity
         key={item.id}
         activeOpacity={0.8}
+        delayLongPress={350}
         style={styles.transaction}
         onPress={() => openSheet(item.type, item)}
+        onLongPress={() => confirmDeleteTransaction(item)}
       >
         <View
           style={[
@@ -325,6 +411,12 @@ export default function CustomerDetailScreen({ navigation, route }) {
               >
                 {money(balance)} تومان
               </Text>
+              {profile ? (
+                <View style={styles.profilePill}>
+                  <Ionicons name="pricetag-outline" size={10} color={colors.primary} />
+                  <Text style={styles.profilePillText}>{profile.name}</Text>
+                </View>
+              ) : null}
             </View>
             <View
               style={[
@@ -374,13 +466,35 @@ export default function CustomerDetailScreen({ navigation, route }) {
           </View>
         </View>
 
+        {contact.phone ? (
+          <View style={styles.quickRow}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={styles.quickBtn}
+              onPress={callCustomer}
+            >
+              <Ionicons name="call-outline" size={18} color={colors.primary} />
+              <Text style={styles.quickText}>تماس</Text>
+            </TouchableOpacity>
+            <View style={{ width: 10 }} />
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={styles.quickBtn}
+              onPress={smsCustomer}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
+              <Text style={styles.quickText}>پیامک</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {needsReminder ? (
           <View style={styles.reminderBanner}>
             <View style={styles.reminderIcon}>
               <Ionicons name="notifications" size={18} color={colors.white} />
             </View>
             <View style={styles.reminderTextWrap}>
-              <Text style={styles.reminderTitle}>بدهی بالای {money(REMINDER_THRESHOLD)} تومان</Text>
+              <Text style={styles.reminderTitle}>بدهی بالای {money(REMINDER_THRESHOLD * TOMAN_PER_UNIT)} تومان</Text>
               <Text style={styles.reminderText}>
                 {settingsReady
                   ? 'پیامک یادآوری به‌صورت خودکار آماده می‌شود.'
@@ -440,7 +554,12 @@ export default function CustomerDetailScreen({ navigation, route }) {
             hint="با دکمه‌های بالا اولین دریافت یا بدهی را ثبت کنید."
           />
         ) : (
-          <View>{transactions.map(renderTransaction)}</View>
+          <>
+            <Text style={styles.transactionHint}>
+              برای حذف، انگشت را روی تراکنش نگه دارید.
+            </Text>
+            <View>{transactions.map(renderTransaction)}</View>
+          </>
         )}
 
         <TouchableOpacity
@@ -482,6 +601,17 @@ const styles = StyleSheet.create({
   balanceInfo: { flex: 1, marginLeft: 10 },
   balanceLabel: { fontSize: 12, color: colors.textSoft, fontWeight: '700', ...rtl },
   balanceValue: { fontSize: 21, fontWeight: '800', marginTop: 4, ...rtl },
+  profilePill: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 6,
+  },
+  profilePillText: { fontSize: 10, fontWeight: '800', color: colors.primary, marginRight: 4 },
   statusPill: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -533,6 +663,18 @@ const styles = StyleSheet.create({
 
   actionsRow: { flexDirection: 'row', marginTop: 14 },
 
+  quickRow: { flexDirection: 'row', marginTop: 12 },
+  quickBtn: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    paddingVertical: 11,
+  },
+  quickText: { fontSize: 13, fontWeight: '800', color: colors.primary, marginRight: 6 },
+
   reminderGhost: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -568,6 +710,13 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 9,
     ...shadows.card,
+  },
+  transactionHint: {
+    fontSize: 10.5,
+    color: colors.muted,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+    ...rtl,
   },
   transactionIcon: {
     width: 34,

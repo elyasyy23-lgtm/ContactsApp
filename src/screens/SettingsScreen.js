@@ -7,19 +7,24 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import LocalAuthentication from 'expo-local-authentication';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
 import { groupCard, money, toFa } from '../utils/format';
 import { buildReminder } from '../utils/smsParser';
+import { parseBackup } from '../utils/backup';
+import { exportBackup, exportCsv, pickBackupFile } from '../utils/exports';
 import { useSettings } from '../store/SettingsContext';
 import { usePremium } from '../store/PremiumContext';
 import { useContacts } from '../store/ContactsContext';
+import { useProfiles } from '../store/ProfilesContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
 import { ScreenHeader } from '../components/ui';
 
@@ -40,11 +45,31 @@ function Field({ label, icon, hint, ...props }) {
   );
 }
 
+function DataRow({ icon, tone, title, sub, onPress }) {
+  const palette =
+    tone === 'red'
+      ? { bg: colors.redSoft, fg: colors.red, title: colors.red }
+      : { bg: colors.primarySoft, fg: colors.primary, title: colors.text };
+  return (
+    <TouchableOpacity activeOpacity={0.8} style={styles.dataRow} onPress={onPress}>
+      <View style={[styles.dataIcon, { backgroundColor: palette.bg }]}>
+        <Ionicons name={icon} size={18} color={palette.fg} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.dataTitle, { color: palette.title }]}>{title}</Text>
+        <Text style={styles.dataSub}>{sub}</Text>
+      </View>
+      <Ionicons name="chevron-back" size={16} color={colors.muted} />
+    </TouchableOpacity>
+  );
+}
+
 export default function SettingsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { settings, saveSettings } = useSettings();
-  const { premium, freeLimit } = usePremium();
-  const { contacts } = useContacts();
+  const { premium, trialActive, trialDaysLeft } = usePremium();
+  const { contacts, importContacts } = useContacts();
+  const { profiles, importProfiles } = useProfiles();
   const {
     available: smsAvailable,
     enabled: smsEnabled,
@@ -66,7 +91,7 @@ export default function SettingsScreen({ navigation }) {
     () =>
       buildReminder({
         customerName: 'مشتری نمونه',
-        amountToman: 1250000,
+        amount: 1250,
         cardNumber: digits || '0000000000000000',
         myName: myName.trim() || 'نام شما',
       }),
@@ -108,6 +133,114 @@ export default function SettingsScreen({ navigation }) {
       : smsPermission === 'denied'
         ? 'اجازه دسترسی به پیامک داده نشده'
         : 'غیرفعال';
+
+  // ── Backup & Data ────────────────────────────────────────────────────────
+  // The file is handed to the Android share sheet; from there the user saves
+  // it into Download (or sends it via WhatsApp/Telegram/Drive).
+  const doBackup = async () => {
+    const result = await exportBackup({ contacts, profiles, settings });
+    if (result.ok) {
+      Alert.alert(
+        'پشتیبان آماده شد',
+        `فایل «${result.name}» ساخته شد. در پنجرهٔ اشتراک می‌توانید آن را در پوشه Download یا هر جای دیگر ذخیره کنید.`,
+      );
+    } else {
+      Alert.alert('پشتیبان‌گیری ناموفق', 'ساخت فایل پشتیبان ممکن نشد. دوباره تلاش کنید.');
+    }
+  };
+
+  const doRestore = async () => {
+    const text = await pickBackupFile();
+    if (!text) return; // canceled / unreadable — pickBackupFile already no-ops
+    const parsed = parseBackup(text);
+    if (!parsed.ok) {
+      Alert.alert(
+        'فایل نامعتبر',
+        'این فایل یک پشتیبان معتبر eKhata نیست. باید فایلی باشد که از «پشتیبان‌گیری محلی» ساخته شده است.',
+      );
+      return;
+    }
+    Alert.alert(
+      'بازیابی داده‌ها',
+      `این فایل شامل ${toFa(parsed.counts.contacts)} مشتری و ${toFa(parsed.counts.transactions)} تراکنش است.\nداده‌های فعلی به‌کلی جایگزین می‌شوند.`,
+      [
+        { text: 'انصراف', style: 'cancel' },
+        {
+          text: 'بازیابی',
+          style: 'destructive',
+          onPress: () => {
+            const count = importContacts(parsed.contacts);
+            if (parsed.profiles) importProfiles(parsed.profiles);
+            if (parsed.settings) {
+              // appLock is NOT restored — it belongs to this phone's owner.
+              saveSettings({
+                myName: parsed.settings.myName,
+                cardNumber: parsed.settings.cardNumber,
+                shopName: parsed.settings.shopName,
+              });
+            }
+            Alert.alert('بازیابی شد', `${toFa(count)} مشتری و تراکنش‌هایش بازیابی شد.`);
+          },
+        },
+      ],
+    );
+  };
+
+  const doCsv = async () => {
+    const result = await exportCsv({ contacts, profiles });
+    if (!result.ok) {
+      Alert.alert('خروجی ناموفق', 'ساخت فایل CSV ممکن نشد. دوباره تلاش کنید.');
+    }
+  };
+
+  const doClearAll = () => {
+    Alert.alert(
+      'پاک کردن همه داده‌ها',
+      'همه مشتریان و تراکنش‌هایشان برای همیشه حذف می‌شوند. این کار برگشت‌پذیر نیست.',
+      [
+        { text: 'انصراف', style: 'cancel' },
+        {
+          text: 'پاک کردن',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert('تأیید نهایی', 'مطمئنید؟ این کار قابل بازگشت نیست.', [
+              { text: 'انصراف', style: 'cancel' },
+              {
+                text: 'بله، پاک کن',
+                style: 'destructive',
+                onPress: () => {
+                  importContacts([]);
+                  Alert.alert('پاک شد', 'همه مشتریان و تراکنش‌ها حذف شدند.');
+                },
+              },
+            ]);
+          },
+        },
+      ],
+    );
+  };
+
+  // ── App Lock (fingerprint / device PIN) ─────────────────────────────────
+  const toggleAppLock = async (value) => {
+    if (!value) {
+      saveSettings({ appLock: false });
+      return;
+    }
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
+    if (!hasHardware || !enrolled) {
+      Alert.alert(
+        'قفل در دسترس نیست',
+        'روی این گوشی اثر انگشت یا رمز صفحه‌قفل فعال نیست. ابتدا آن را در تنظیمات اندروید فعال کنید.',
+      );
+      return;
+    }
+    saveSettings({ appLock: true });
+    Alert.alert(
+      'قفل فعال شد',
+      'از این پس هنگام باز کردن برنامه، اثر انگشت یا رمز گوشی پرسیده می‌شود.',
+    );
+  };
 
   const save = () => {
     if (!myName.trim()) {
@@ -266,11 +399,66 @@ export default function SettingsScreen({ navigation }) {
               <Text style={styles.premiumSub}>
                 {premium
                   ? 'فعال است — مشتری نامحدود'
-                  : `رایگان — حداکثر ${toFa(freeLimit)} مشتری`}
+                  : trialActive
+                    ? `دوره آزمایشی — ${toFa(trialDaysLeft)} روز باقی‌مانده`
+                    : 'دوره آزمایشی به پایان رسیده — خرید نسخه کامل'}
               </Text>
             </View>
             <Ionicons name="chevron-back" size={18} color={colors.muted} />
           </TouchableOpacity>
+
+          <Text style={styles.sectionTitle}>پشتیبان‌گیری و داده‌ها</Text>
+          <View style={styles.dataCard}>
+            <DataRow
+              icon="download-outline"
+              tone="purple"
+              title="پشتیبان‌گیری محلی"
+              sub="خروجی کامل مشتریان، تراکنش‌ها و تنظیمات (فایل JSON)"
+              onPress={doBackup}
+            />
+            <View style={styles.dataDivider} />
+            <DataRow
+              icon="cloud-upload-outline"
+              tone="purple"
+              title="بازیابی از فایل"
+              sub="بازگردانی داده‌ها از فایل پشتیبان"
+              onPress={doRestore}
+            />
+            <View style={styles.dataDivider} />
+            <DataRow
+              icon="grid-outline"
+              tone="purple"
+              title="خروجی CSV"
+              sub="فهرست مشتریان و مانده‌ها برای اکسل"
+              onPress={doCsv}
+            />
+            <View style={styles.dataDivider} />
+            <DataRow
+              icon="trash-outline"
+              tone="red"
+              title="پاک کردن همه داده‌ها"
+              sub="حذف همه مشتریان و تراکنش‌ها"
+              onPress={doClearAll}
+            />
+          </View>
+
+          <View style={styles.lockCard}>
+            <View style={styles.lockIcon}>
+              <Ionicons name="shield-lock-outline" size={19} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.lockTitle}>قفل برنامه</Text>
+              <Text style={styles.lockSub}>
+                هنگام باز کردن برنامه، اثر انگشت یا رمز گوشی پرسیده می‌شود.
+              </Text>
+            </View>
+            <Switch
+              value={settings.appLock}
+              onValueChange={toggleAppLock}
+              trackColor={{ false: colors.border, true: colors.primaryLight }}
+              thumbColor={settings.appLock ? colors.primary : colors.white}
+            />
+          </View>
 
           <Text style={styles.footer}>
             اطلاعات فقط روی همین گوشی ذخیره می‌شود و به هیچ سروری ارسال نمی‌گردد.
@@ -415,6 +603,51 @@ const styles = StyleSheet.create({
   },
   premiumTitle: { fontSize: 14, fontWeight: '800', color: colors.text, ...rtl },
   premiumSub: { fontSize: 11.5, color: colors.muted, marginTop: 3, ...rtl },
+
+  dataCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    paddingVertical: 4,
+    ...shadows.card,
+  },
+  dataRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 13,
+  },
+  dataIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 11,
+  },
+  dataTitle: { fontSize: 13.5, fontWeight: '800', ...rtl },
+  dataSub: { fontSize: 10.5, color: colors.muted, marginTop: 3, lineHeight: 16, ...rtl },
+  dataDivider: { height: 1, backgroundColor: colors.border, marginHorizontal: 13 },
+
+  lockCard: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: 13,
+    marginTop: 14,
+    ...shadows.card,
+  },
+  lockIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 11,
+  },
+  lockTitle: { fontSize: 13.5, fontWeight: '800', color: colors.text, ...rtl },
+  lockSub: { fontSize: 10.5, color: colors.muted, marginTop: 3, ...rtl },
 
   footer: {
     fontSize: 11,

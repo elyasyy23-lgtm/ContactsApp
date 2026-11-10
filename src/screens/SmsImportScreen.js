@@ -47,7 +47,7 @@ export default function SmsImportScreen({ navigation }) {
     const result = parseBankSms(text);
     setParsed(result);
     if (result.ok) {
-      setAmount(String(result.amountToman));
+      setAmount(String(result.amount));
       setType(result.direction === 'out' ? TRANSACTION.CREDIT : TRANSACTION.PAYMENT);
     } else {
       setAmount('');
@@ -69,7 +69,7 @@ export default function SmsImportScreen({ navigation }) {
     if (ok) {
       Alert.alert(
         'ثبت شد',
-        `واریز ${money(item.amountToman)} تومان برای «${contact.name}» به‌عنوان دریافت وجه ثبت شد.`,
+        `واریز ${money(item.amount ?? item.amountToman ?? 0)} تومان برای «${contact.name}» به‌عنوان دریافت وجه ثبت شد.`,
       );
     }
   };
@@ -146,7 +146,7 @@ export default function SmsImportScreen({ navigation }) {
                 <View key={item.key} style={styles.pendingCard}>
                   <View style={styles.pendingTop}>
                     <Text style={styles.pendingAmount}>
-                      {money(item.amountToman)} تومان
+                      {money(item.amount ?? item.amountToman ?? 0)} تومان
                     </Text>
                     <Text style={styles.pendingMeta}>
                       {item.bank ? `بانک ${item.bank}` : 'پیامک بانکی'}
@@ -269,7 +269,7 @@ export default function SmsImportScreen({ navigation }) {
               <View style={styles.resultRow}>
                 <Text style={styles.resultLabel}>مبلغ</Text>
                 <Text style={styles.resultValue}>
-                  {money(parseAmount(amount) || parsed.amountToman)} تومان
+                  {money(parseAmount(amount) || parsed.amount)} تومان
                 </Text>
               </View>
 

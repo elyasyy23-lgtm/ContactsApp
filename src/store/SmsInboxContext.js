@@ -115,7 +115,7 @@ export function SmsInboxProvider({ children }) {
     (item, customer) => {
       addTransaction(customer.id, {
         type: TRANSACTION.PAYMENT,
-        amount: String(item.amountToman),
+        amount: String(item.amount ?? item.amountToman ?? '0'),
         note: item.bank ? `پیامک ${item.bank}` : 'پیامک بانکی',
       });
     },
@@ -168,7 +168,7 @@ export function SmsInboxProvider({ children }) {
           address: sms.address || '',
           body: sms.body,
           timestamp: sms.timestamp || Date.now(),
-          amountToman: result.parsed.amountToman,
+          amount: result.parsed.amount,
           card: result.parsed.card || null,
           bank: result.parsed.bank || null,
           confidence: result.confidence,
@@ -181,7 +181,7 @@ export function SmsInboxProvider({ children }) {
           auto.push({
             id: sms.id,
             name: result.match.name,
-            amount: item.amountToman,
+            amount: item.amount,
             at: Date.now(),
           });
         } else {

@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = '@settings_data';
 
-const EMPTY = { myName: '', cardNumber: '', shopName: '' };
+const EMPTY = { myName: '', cardNumber: '', shopName: '', appLock: false };
 
 const SettingsContext = createContext(null);
 
@@ -20,6 +20,8 @@ function normalize(raw) {
     myName: String(raw?.myName || '').trim(),
     cardNumber: String(raw?.cardNumber || '').replace(/[^\d]/g, ''),
     shopName: String(raw?.shopName || '').trim(),
+    // Require fingerprint/PIN every time the app is opened (LockScreen gate).
+    appLock: Boolean(raw?.appLock),
   };
 }
 

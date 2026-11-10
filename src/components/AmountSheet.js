@@ -14,15 +14,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, rtl, shadows } from '../theme';
-import { dateTime, money, parseAmount, toFa } from '../utils/format';
+import { dateTime, money, parseAmount } from '../utils/format';
 import { TRANSACTION } from '../store/ContactsContext';
-
-const QUICK_AMOUNTS = [100000, 500000, 1000000, 2000000, 5000000];
-
-const compact = (value) =>
-  value >= 1000000
-    ? `${toFa(value / 1000000)} میلیون`
-    : `${toFa(value / 1000)} هزار`;
 
 export default function AmountSheet({
   visible,
@@ -70,7 +63,7 @@ export default function AmountSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <Pressable style={styles.backdrop} onPress={onClose} />
         <View style={styles.sheet}>
@@ -132,18 +125,6 @@ export default function AmountSheet({
               </Text>
             </TouchableOpacity>
           ) : null}
-
-          <View style={styles.quickRow}>
-            {QUICK_AMOUNTS.map((value) => (
-              <TouchableOpacity
-                key={value}
-                style={styles.quickChip}
-                onPress={() => setAmount(String((parseAmount(amount) || 0) + value))}
-              >
-                <Text style={styles.quickChipText}>+{compact(value)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
 
           <Text style={styles.noteLabel}>توضیح (اختیاری)</Text>
           <TextInput
@@ -249,22 +230,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   settleText: { fontSize: 12, fontWeight: '800', color: colors.primary, marginLeft: 5 },
-
-  quickRow: {
-    flexDirection: 'row-reverse',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginTop: 14,
-  },
-  quickChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-    backgroundColor: colors.bg,
-    marginLeft: 7,
-    marginBottom: 7,
-  },
-  quickChipText: { fontSize: 12, fontWeight: '700', color: colors.primary },
 
   noteLabel: { fontSize: 12.5, fontWeight: '700', color: colors.textSoft, marginTop: 12, ...rtl },
   noteInput: {

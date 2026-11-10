@@ -1,5 +1,6 @@
-// Premium (نسخه ویژه) — paywall for the Myket / Cafe Bazaar in-app purchase.
-// Free plan: up to 10 customers. Premium: unlimited + all future features.
+// Premium (نسخه ویژه) — 7-day free trial + one-time Myket / Cafe Bazaar purchase.
+// Trial: full access for 7 days from the first launch, then the app is locked
+// and only this screen stays reachable until the purchase is made.
 import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,12 +8,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
 import { money, toFa } from '../utils/format';
+import { TRIAL_DAYS } from '../utils/trial';
 import { usePremium } from '../store/PremiumContext';
-import { useContacts } from '../store/ContactsContext';
 import { ScreenHeader } from '../components/ui';
 
 const FEATURES = [
-  { icon: 'people-outline', title: 'مشتری نامحدود', text: 'نسخه رایگان تا ۱۰ مشتری اجازه می‌دهد.' },
+  { icon: 'people-outline', title: 'مشتری نامحدود', text: 'بدون سقف مشتری؛ در دوره آزمایشی و بعد از خرید.' },
   { icon: 'notifications-outline', title: 'یادآوری خودکار پیامک', text: 'برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، خودکار ارسال می‌شود.' },
   { icon: 'card-outline', title: 'اطلاعات کارت در پیام', text: 'نام شما و شماره کارت داخل متن یادآوری درج می‌شود.' },
   { icon: 'cloud-download-outline', title: 'همه امکانات آینده', text: 'یک‌بار خرید، استفاده همیشگی؛ به‌روزرسانی‌ها رایگان.' },
@@ -20,13 +21,29 @@ const FEATURES = [
 
 export default function PremiumScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { premium, busy, billingReady, buy, restore, unlock, lock, freeLimit } = usePremium();
-  const { contacts } = useContacts();
+  const {
+    premium,
+    busy,
+    billingReady,
+    trialActive,
+    trialDaysLeft,
+    locked,
+    buy,
+    restore,
+    unlock,
+    lock,
+    debugShiftTrial,
+  } = usePremium();
+
+  const goBackOrHome = () => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('Home');
+  };
 
   const handleBuy = async () => {
     const result = await buy();
     if (result.ok) {
-      Alert.alert('نسخه ویژه فعال شد', 'از این پس می‌توانید مشتری نامحدود اضافه کنید.');
+      Alert.alert('نسخه ویژه فعال شد', 'از این پس می‌توانید بدون محدودیت از برنامه استفاده کنید.');
       return;
     }
     if (result.reason === 'cancelled') return;
@@ -65,12 +82,30 @@ export default function PremiumScreen({ navigation }) {
     );
   };
 
+  const subtitle = premium
+    ? 'فعال است'
+    : locked
+      ? 'دوره آزمایشی پایان یافت'
+      : `${toFa(trialDaysLeft)} روز باقی مانده`;
+
+  const heroTitle = premium
+    ? 'نسخه ویژه فعال است'
+    : locked
+      ? 'دوره آزمایشی به پایان رسید'
+      : `${toFa(trialDaysLeft)} روز استفاده رایگان`;
+
+  const heroSub = premium
+    ? 'مشتری نامحدود و همه امکانات باز است.'
+    : locked
+      ? 'برای ثبت مشتری، ثبت تراکنش و ادامه کار، نسخه کامل را فعال کنید.'
+      : `همه امکانات برنامه تا ${toFa(TRIAL_DAYS)} روز باز است. پس از پایان دوره، برای ادامه باید نسخه کامل را فعال کنید.`;
+
   return (
     <View style={styles.root}>
       <ScreenHeader
         title="نسخه ویژه"
-        subtitle={premium ? 'فعال است' : 'مشتری نامحدود'}
-        onBack={() => navigation.goBack()}
+        subtitle={subtitle}
+        onBack={locked ? undefined : goBackOrHome}
       />
 
       <ScrollView
@@ -84,24 +119,29 @@ export default function PremiumScreen({ navigation }) {
           style={styles.hero}
         >
           <View style={styles.heroBadge}>
-            <Ionicons name="diamond" size={16} color={colors.amber} />
+            <Ionicons name={locked ? 'lock-closed' : 'diamond'} size={16} color={colors.amber} />
             <Text style={styles.heroBadgeText}>eKhata • نسخه ویژه</Text>
           </View>
-          <Text style={styles.heroTitle}>
-            {premium ? 'نسخه ویژه فعال است' : 'حساب مشتریان، بدون محدودیت'}
-          </Text>
-          <Text style={styles.heroSub}>
-            {premium
-              ? 'مشتری نامحدود و همه امکانات باز است.'
-              : `نسخه رایگان تا ${toFa(freeLimit)} مشتری؛ با یک خرید، محدودیت برای همیشه برداشته می‌شود.`}
-          </Text>
+          <Text style={styles.heroTitle}>{heroTitle}</Text>
+          <Text style={styles.heroSub}>{heroSub}</Text>
           <View style={styles.heroStat}>
             <Text style={styles.heroStatValue}>
-              {premium ? '∞' : `${toFa(contacts.length)} / ${toFa(freeLimit)}`}
+              {premium ? '∞' : locked ? '۰' : toFa(trialDaysLeft)}
             </Text>
-            <Text style={styles.heroStatLabel}>مشتری ثبت‌شده</Text>
+            <Text style={styles.heroStatLabel}>
+              {premium ? 'مشتری نامحدود' : 'روز باقی‌مانده'}
+            </Text>
           </View>
         </LinearGradient>
+
+        {locked ? (
+          <View style={styles.lockedCard}>
+            <Ionicons name="lock-closed" size={18} color={colors.redDark} />
+            <Text style={styles.lockedText}>
+              برنامه قفل شده است. تا فعال‌سازی نسخه کامل، دسترسی به مشتریان و تراکنش‌ها ممکن نیست.
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           {FEATURES.map((feature, index) => (
@@ -140,7 +180,9 @@ export default function PremiumScreen({ navigation }) {
               disabled={busy}
             >
               <Ionicons name="bag-check-outline" size={19} color={colors.white} />
-              <Text style={styles.buyText}>خرید نسخه ویژه از مایکت</Text>
+              <Text style={styles.buyText}>
+                {locked ? 'خرید نسخه کامل از مایکت' : 'خرید نسخه ویژه از مایکت'}
+              </Text>
             </TouchableOpacity>
 
             <View style={styles.secondaryRow}>
@@ -157,10 +199,24 @@ export default function PremiumScreen({ navigation }) {
             </View>
 
             <Text style={styles.note}>
+              {trialActive
+                ? `دوره آزمایشی ${toFa(TRIAL_DAYS)} روزه از اولین اجرای برنامه شروع می‌شود و با حذف و نصب دوباره بازنشانی نمی‌شود.`
+                : `دوره آزمایشی ${toFa(TRIAL_DAYS)} روزه شما به پایان رسیده است. خرید نسخه کامل، دسترسی را برای همیشه برمی‌گرداند.`}
+            </Text>
+
+            <Text style={styles.note}>
               {billingReady
                 ? 'پرداخت از طریق مایکت انجام می‌شود؛ در صورت بروز مشکل با پشتیبانی مایکت تماس بگیرید.'
                 : 'پرداخت درون‌برنامه‌ای مایکت پس از نصب نسخه APK فعال می‌شود. این صفحه فعلاً برای آزمایش جریان خرید است.'}
             </Text>
+
+            {__DEV__ ? (
+              <TouchableOpacity style={styles.resetBtn} onPress={() => debugShiftTrial(8)}>
+                <Text style={styles.resetText}>
+                  {locked ? 'بازنشانی دوره آزمایشی (تست)' : 'پایان دوره آزمایشی (تست)'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </>
         ) : (
           <>
@@ -179,7 +235,7 @@ export default function PremiumScreen({ navigation }) {
             <TouchableOpacity
               activeOpacity={0.88}
               style={styles.continueBtn}
-              onPress={() => navigation.goBack()}
+              onPress={goBackOrHome}
             >
               <Text style={styles.continueText}>بازگشت به برنامه</Text>
             </TouchableOpacity>
@@ -231,6 +287,24 @@ const styles = StyleSheet.create({
   heroStat: { alignItems: 'center', marginTop: 14 },
   heroStatValue: { fontSize: 26, fontWeight: '800', color: colors.white },
   heroStatLabel: { fontSize: 11, color: 'rgba(255,255,255,0.75)', marginTop: 2, ...rtlCenter },
+
+  lockedCard: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: colors.redSoft,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginTop: 14,
+  },
+  lockedText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.redDark,
+    lineHeight: 20,
+    marginRight: 10,
+    ...rtl,
+  },
 
   card: {
     backgroundColor: colors.card,

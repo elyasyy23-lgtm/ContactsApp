@@ -34,11 +34,9 @@ export const colors = {
 };
 
 // A customer is flagged (and auto-reminded) once their debt passes this amount,
-// in Toman (۱۰۰٬۰۰۰ تومان = 1,000,000).
-export const REMINDER_THRESHOLD = 1000000;
-
-// Free plan cap. The premium (unlocked) plan removes it.
-export const FREE_CUSTOMER_LIMIT = 10;
+// in Toman (۱۰۰٬۰۰۰ تومان = 1,000,000). Defined in utils/reminderGate.js so the
+// decision logic and the UI share one number (and stay unit-testable).
+export { REMINDER_THRESHOLD, TOMAN_PER_UNIT } from './utils/reminderGate';
 
 export const radius = { sm: 10, md: 16, lg: 22, xl: 28, pill: 999 };
 

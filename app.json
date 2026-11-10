@@ -2,7 +2,7 @@
   "expo": {
     "name": "eKhata",
     "slug": "ContactsApp",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -10,6 +10,7 @@
       "supportsTablet": true
     },
     "android": {
+      "allowBackup": true,
       "permissions": [
         "RECEIVE_SMS",
         "READ_SMS"
@@ -29,6 +30,9 @@
       "eas": {
         "projectId": "ae25b9dd-d386-4f43-af7f-4565be440f84"
       }
-    }
+    },
+    "plugins": [
+      "expo-sharing"
+    ]
   }
 }

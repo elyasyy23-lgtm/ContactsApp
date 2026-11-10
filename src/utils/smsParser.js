@@ -4,6 +4,7 @@
 // user to paste the bank message. This module turns that raw text into a
 // structured suggestion: amount in Toman, direction and card hint.
 import { groupCard, money } from './format';
+import { TOMAN_PER_UNIT } from './reminderGate';
 
 const FA_TO_EN = {
   '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
@@ -35,7 +36,9 @@ export function normalizeText(input) {
     .replace(/\u200c/g, ' ')
     .replace(/\u00a0/g, ' ')
     .replace(/ي/g, 'ی')
-    .replace(/ك/g, 'ک');
+    .replace(/ك/g, 'ک')
+    // Arabic ta-marbuta / heh variants → Persian ه, so «هانیة» still matches «هانیه».
+    .replace(/[\u0629\u06c0\u06d5]/g, 'ه');
 }
 
 function pickAmount(text) {
@@ -56,11 +59,15 @@ function pickAmount(text) {
     if (/مبلغ|به مبلغ/.test(before)) score += 10;
     if (/موجودی|مانده|بالانس/.test(before)) score -= 12;
     score -= m.index / 2000; // on a tie the earlier amount wins
+    // Rial ÷ 10 = Toman, then ÷ 1,000 = the ledger unit the shop types by hand
+    // (1,900,000 Rial → 190,000 Toman → 190, exactly like typing "190").
+    const toman = isToman ? value : Math.round(value / 10);
+    const amount = Math.round(toman / TOMAN_PER_UNIT);
     matches.push({
       raw: value,
       unit: isToman ? 'تومان' : 'ریال',
-      // The app works in Toman: Rial messages are divided by 10.
-      toman: isToman ? value : Math.round(value / 10),
+      toman,
+      amount,
       index: m.index,
       score,
     });
@@ -74,7 +81,13 @@ function pickAmount(text) {
   if (loose) {
     const value = Number(loose[1].replace(/[,\s.]/g, ''));
     if (Number.isFinite(value) && value > 0) {
-      return { raw: value, unit: 'تومان', toman: value, index: loose.index };
+      return {
+        raw: value,
+        unit: 'تومان',
+        toman: value,
+        amount: Math.round(value / TOMAN_PER_UNIT),
+        index: loose.index,
+      };
     }
   }
   return null;
@@ -104,9 +117,12 @@ function pickBank(text) {
 
 /**
  * parseBankSms(text) -> {
- *   ok, amountToman, rawAmount, unit, direction: 'in'|'out'|'unknown',
+ *   ok, amount, rawAmount, tomanAmount, unit, direction: 'in'|'out'|'unknown',
  *   card, bank, reason
  * }
+ * `amount` is in ledger units (1 unit = 1,000 Toman): 1,900,000 Rial becomes
+ * 190,000 Toman and then 190 — exactly what the shop types by hand. `tomanAmount`
+ * keeps the plain Toman value for display/debugging.
  */
 export function parseBankSms(input) {
   const text = normalizeText(input).trim();
@@ -127,7 +143,8 @@ export function parseBankSms(input) {
 
   return {
     ok: true,
-    amountToman: amount.toman,
+    amount: amount.amount,
+    tomanAmount: amount.toman,
     rawAmount: amount.raw,
     unit: amount.unit,
     direction: pickDirection(text),
@@ -140,19 +157,22 @@ export function parseBankSms(input) {
 /**
  * The exact Persian reminder template. Kept verbatim on purpose — the shop owner
  * sends this to customers, so wording and line breaks must not drift.
+ * `amount` is in ledger units; the customer sees real Tomans (× 1,000).
  */
-export function buildReminder({ customerName, amountToman, cardNumber, myName }) {
+export function buildReminder({ customerName, amount, cardNumber, myName }) {
   const name = String(customerName || '').trim();
-  const amount = money(amountToman); // Persian digits + thousands separator
+  const toman = Math.round((Number(amount) || 0) * TOMAN_PER_UNIT);
+  const amountText = money(toman); // Persian digits + thousands separator
   const card = groupCard(cardNumber) || String(cardNumber || '').trim();
   const owner = String(myName || '').trim();
 
   return (
     `${name} عزیز،\n` +
-    `یادآوری می‌شود موجودی بدهی شما ${amount} تومان می‌باشد.\n` +
+    `یادآوری می‌شود موجودی بدهی شما ${amountText} تومان می‌باشد.\n` +
     `جهت تسویه، لطفاً مبلغ را به شماره کارت زیر واریز نمایید:\n` +
     `${card}\n` +
     `به نام: ${owner}\n` +
+    `لطفاً پس از واریز، تصویر رسید تراکنش را برای این شماره ارسال نمایید.\n` +
     `با تشکر از همکاری شما`
   );
 }

@@ -1,6 +1,6 @@
 This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
 
-## Current app (2026-11-09 — Persian UI, Toman, auto-SMS, Premium)
+## Current app (2026-11-10 — Persian UI, Toman, auto-SMS, Premium, drawer + backup)
 
 Persian (RTL) customer-ledger app. Balance = credits − payments (positive = the
 customer owes the shop). UI is a hand-built "eKhata" look: purple gradient header,
@@ -8,47 +8,147 @@ white cards, green = receive payment, red = give credit, floating + bottom-left.
 **The whole UI is Persian and all money is Toman (تومان)** — no English labels, no Rial.
 
 ```
-App.js                      SafeArea > SettingsProvider > PremiumProvider > ContactsProvider
-                            > NavigationContainer (all providers ABOVE navigation)
+App.js                      GestureHandlerRootView > SafeArea > SettingsProvider >
+                            PremiumProvider > ProfilesProvider > ContactsProvider >
+                            SmsInboxProvider > NavigationContainer > LockGate >
+                            DrawerShell (drawer on the RIGHT, type front, swipeEnabled
+                            false — hamburger only) wrapping nested MainStack.
+                            Trial gate: `locked` swaps the whole stack for Premium.
 src/theme.js                colors/radius/shadows, faText/rtl/rtlCenter, REMINDER_THRESHOLD,
-                            FREE_CUSTOMER_LIMIT = 10
+                            TOMAN_PER_UNIT
 src/utils/format.js         toFa/toEn, group (Latin), money (Persian + ٬), parseAmount,
                             groupCard, Jalali date, faLetterIndex
-src/utils/smsParser.js      bank-SMS → {amountToman, direction, card, bank};
+src/utils/calc.js           calculator engine: tokenize + recursive descent, phone-%
+                            (200+10%→220, 200×10%→20, bare % = fraction),
+                            formatCalcResult (Persian digits ٬ ٫), formatExpression
+src/utils/backup.js         buildBackup/parseBackup/toCsv/backupFileName
+src/utils/exports.js        exportBackup/exportCsv/pickBackupFile (cache file → share
+                            sheet → delete; no direct Download write — scoped storage)
+src/utils/smsParser.js      bank-SMS → {amount, tomanAmount, rawAmount, direction, card, bank};
                             buildReminder() = the exact Persian reminder template
+src/utils/trial.js          7-day trial math (pure): TRIAL_DAYS = 7, trialInfo(start, now)
 src/utils/billing.js        Myket/Cafe-Bazaar IAP placeholder (BILLING_READY=false)
-src/store/ContactsContext.js single source of truth (AsyncStorage @contacts_data)
-src/store/SettingsContext.js myName / cardNumber / shopName (AsyncStorage @settings_data)
-src/store/PremiumContext.js isPremium (AsyncStorage @premium_state), buy/restore/unlock,
-                            isLimitReached/remaining against FREE_CUSTOMER_LIMIT
+src/store/ContactsContext.js single source of truth (AsyncStorage @contacts_data) +
+                            importContacts(list) bulk replace (restore + clear-all)
+src/store/SettingsContext.js myName / cardNumber / shopName / appLock (@settings_data)
+src/store/ProfilesContext.js customer categories (@customer_profiles, seeds فروشگاه/شخصی)
+                            + importProfiles(list)
+src/utils/profiles.js      cleanProfileName / isDuplicateProfile / profileCounts / contactsOfProfile
+src/utils/grouping.js      lettersOf + letterBuckets (dynamic chips + Persian sections)
+src/store/PremiumContext.js premium + trial (AsyncStorage @premium_state / @premium_trial),
+                            trialActive/trialDaysLeft/locked/hasAccess, 60s tick + AppState,
+                            buy/restore/unlock, debugShiftTrial (__DEV__ only)
 src/components/ui.js        ScreenHeader, Avatar, Chip, EmptyState, ActionButton
 src/components/AmountSheet.js amount bottom sheet (+ quick chips, settle-all)
-src/screens/HomeScreen.js   hero + summary card + letter chips + list + FAB + plan pill
-src/screens/CustomerDetailScreen.js balance card, actions, auto-SMS reminder, transactions
-src/screens/CustomerFormScreen.js  add/edit customer (+ free-plan guard)
+src/components/AppDrawer.js right drawer: gradient header, debtors card (live count +
+                            receivable), trial row, menu → home/settings/categories/
+                            report/calculator/SMS imports (navigate('MainStack',{screen}))
+src/screens/HomeScreen.js   minimal header (hamburger + shop name + search icon),
+                            letter chips + list + FAB; search = name/phone/cardNumber
+src/screens/DebtorsScreen.js all debtors, letter chips + alphabetical sections, totals
+src/screens/ReportScreen.js all-customers report (credit/payment/net) + CSV share button
+src/screens/CalculatorScreen.js button-grid calculator, Persian display, ASCII expr inside
+src/screens/LockScreen.js   biometric unlock (expo-local-authentication, auto-attempt)
+src/screens/CustomerDetailScreen.js balance card, call/SMS quick actions
+                            (Linking.openURL tel:/sms:), actions, auto-SMS reminder,
+                            transactions (tap = edit sheet; long-press = delete confirm)
+src/screens/CustomerFormScreen.js  add/edit customer (+ trial-lock guard)
 src/utils/smsMatch.js              SMS → customer matcher (card last-4 / full name / partial)
+src/utils/reminderGate.js          REMINDER_THRESHOLD + reminderAction() (send/reset/none latch)
 src/store/SmsInboxContext.js       auto-import pipeline (native queue → parse → record)
 src/screens/SmsImportScreen.js     pending auto-imports + paste SMS → parse → pick customer
 modules/sms-reader/                LOCAL native module (Kotlin receiver + JS bridge)
-src/screens/SettingsScreen.js      my name / card number / shop name + reminder preview
-src/screens/PremiumScreen.js       paywall, features, demo unlock / restore
+src/screens/ProfilesScreen.js      category list + counts (+ «بدون دسته» row)
+src/screens/ProfileDetailScreen.js one category: dynamic letter chips + alphabetical sections
+src/screens/ProfileFormScreen.js   add / rename / delete a category (delete cascades)
+src/screens/SettingsScreen.js      my name / card number / shop name + reminder preview +
+                            پشتیبان‌گیری و داده‌ها (backup/restore/CSV/clear-all) + app-lock switch
+src/screens/PremiumScreen.js       trial paywall (days left / trial ended), buy, restore
 ```
 
 ### Rules added 2026-11-09
+- **Amounts are literal + one ledger unit = 1,000 Toman (load-bearing, v5 2026-11-09)**: the
+  stored number is exactly what is typed/displayed — `190` stays `190`. There is deliberately NO
+  `applyAmountRule` helper (a "small amount means thousands" shortcut was added and removed on
+  the owner's request), so never reintroduce it. The ONLY amount transformation is the SMS
+  conversion in `parseBankSms`: Rial ÷ 10 = Toman, then ÷ `TOMAN_PER_UNIT` (1,000) = ledger units
+  → `۱٬۹۰۰٬۰۰۰ ریال` becomes `190,000` Toman and is stored as `190`, exactly like typing `190`.
+  `parseBankSms` returns `amount` (ledger units), `tomanAmount` (plain Toman) and `rawAmount`.
+  `money()` only formats (Persian digits + `٬`); it never divides or shortens. Manual entry
+  (`parseAmount`), pending auto-imports (`item.amount`, with `item.amountToman` read as a legacy
+  fallback) and `normalizeTransaction` all store the plain number. Customer-facing texts
+  (`buildReminder`) multiply by `TOMAN_PER_UNIT` so the customer reads real Tomans.
+- `AmountSheet` keyboard: `KeyboardAvoidingView` uses `behavior="height"` on Android and
+  `"padding"` on iOS; quick-amount chips were removed (only «تسویه کامل» remains).
 - **Provider order is load-bearing**: `SettingsProvider` and `PremiumProvider` must wrap
   `NavigationContainer`. Every screen calls `useSettings()`/`usePremium()`; moving them
   inside the navigator reproduces the "useSettings must be used inside SettingsProvider"
   crash.
-- Free plan = max `FREE_CUSTOMER_LIMIT` (10) customers; the guard lives in HomeScreen's FAB,
-  CustomerFormScreen's save, and shows as a plan pill → Premium.
+- **Business model = 7-day free trial, then one-time Myket purchase (v6 2026-11-09)**. No
+  customer cap anymore (`FREE_CUSTOMER_LIMIT` is gone). On the first launch `PremiumContext`
+  writes `{ startedAt, lastSeenAt }` to `@premium_trial`; the trial ends at
+  `startedAt + 7 days` (`src/utils/trial.js`). During the trial everything is unlimited.
+  After it ends, `locked` becomes true and `RootNavigator` renders **only** the Premium screen
+  (no back button), so the whole app is gated. Purchase/unlock sets `premium` and unlocks
+  instantly. `lastSeenAt` is bumped at most every 5 min and the comparison uses
+  `Math.max(now, lastSeenAt)`, so rolling the phone clock back cannot reopen an expired trial.
+  `debugShiftTrial(8)` (button only under `__DEV__`) fast-forwards for testing.
+- Reinstall: AsyncStorage is app-private and Android deletes it on uninstall — survival relies
+  on Android Auto Backup (`android.allowBackup: true` in `app.json`) restoring the data.
+  There is no server in this app, so nothing stronger is possible client-side; Myket's own
+  account-bound purchase/restore is the real permanent authorization.
 - `react-native-iap` / Poolakey are native modules → they break Expo Go, so billing is a
   documented stub in `src/utils/billing.js` (same `{ok, reason}` shape as the real SDK).
   The "فعال‌سازی آزمایشی" button unlocks locally for testing.
-- Automatic reminder: opening a customer whose debt > `REMINDER_THRESHOLD` (1,000,000 Toman)
-  — or a transaction that pushes it over — opens the SMS composer once, with the exact
-  template from `buildReminder()`. Requires `settings.myName` + `settings.cardNumber`;
-  otherwise the banner routes to Settings. Fires once per customer+amount (`firedRef`) and
-  the pending timer is cleared on unmount.
+- Automatic reminder (anti-spam latch): the customer carries `smsSentForCurrentDebt`.
+  `reminderAction()` in `src/utils/reminderGate.js` decides `send` / `reset` / `none`:
+  debt above `REMINDER_THRESHOLD` (now **1,000 ledger units = 1,000,000 Toman**, v5) with the
+  latch off → compose the SMS once (exact template from `buildReminder()`, including the
+  «لطفاً پس از واریز، تصویر رسید تراکنش را برای این شماره ارسال نمایید.» line before the final
+  thanks and «به نام: {myName}») and set the latch; debt back to/≤ threshold → the
+  latch is cleared, so the next crossing sends exactly one more; while the debt stays above,
+  nothing is ever re-sent. `ContactsContext` clears the latch inside every transaction mutation
+  (`settleReminderLatch`), so a payment recorded from a bank SMS resets it even when the detail
+  screen was never opened. Missing `settings.myName`/`cardNumber` or a customer phone → no send
+  AND no latch. The in-memory `firedRef` scheme is gone; never reintroduce a per-balance-key
+  trigger. Unit-tested in `scripts/verify.js` (send → silent → reset → send again).
+
+### Drawer, backup & app lock — v8 2026-11-10
+- **Drawer is right-positioned, `type 'front'`, `swipeEnabled: false`** — it opens only
+  via the hamburger so it never fights the Android back gesture. Home header is
+  minimal: hamburger + shop name + search. Settings gear, categories row and the
+  summary cards live in the drawer now. Drawer targets nested routes with
+  `navigation.navigate('MainStack', { screen })` (stack name is load-bearing).
+- **Backup = share sheet, never direct Download writes**: scoped storage exposes only
+  cache/document/bundle paths, so exports write to `Paths.cache`, `Sharing.shareAsync`,
+  then delete the temp file. Restore uses DocumentPicker + `File.text()`.
+- **Backup JSON shape**: `{ app:'ekhata-backup', version:1, exportedAt, counts, contacts,
+  profiles, settings }`. `parseBackup` also accepts a legacy bare contacts array.
+  Restore restores contacts/profiles/myName/cardNumber/shopName but **NEVER `appLock`**
+  (a lock belongs to the phone's owner, not the backup). `importContacts` bulk-replaces
+  (normalizeContact runs per row), `importProfiles` only when the file carries profiles.
+- **CSV** carries a UTF-8 BOM (`\uFEFF`) so Excel renders Persian; columns
+  نام/شماره تماس/دسته/کل بدهی/کل دریافت/مانده + a جمع کل totals row.
+- **Calculator**: input comes ONLY from the button grid; the expression stays ASCII
+  internally, rendering goes through `formatExpression` (×÷, Persian digits). Percent
+  follows phone semantics: `200+10%`=220, `200×10%`=20, bare `50%`=0.5.
+- **App lock** (LockScreen + LockGate) sits INSIDE the unlocked path: LockGate wraps
+  DrawerShell but only when `settings.appLock` is on; re-locks on AppState
+  `background` via an in-memory unlock ref. Toggle guards with
+  `LocalAuthentication.hasHardwareAsync` + `isEnrolledAsync`.
+- Call/SMS quick actions use `Linking.openURL('tel:'/'sms:')` with try/catch only —
+  no `canOpenURL` (Android 11 package visibility would need extra manifest queries).
+
+### Customer categories (profiles) — v7 2026-11-09
+- The ONLY link is `contact.profileId` (`''` = بدون دسته); never nest a profile object in
+  a customer. Names are unique (`isDuplicateProfile`), trimmed and capped at
+  `PROFILE_NAME_MAX = 24`.
+- Deleting a category must never delete customers: `ProfileFormScreen` calls
+  `clearProfileFromContacts(id)` BEFORE `deleteProfile(id)`.
+- Letter chips/sections come from `src/utils/grouping.js` (`lettersOf`, `letterBuckets`) so
+  Home and `ProfileDetailScreen` can never drift; only letters with customers appear.
+- `ProfilesProvider` sits ABOVE `ContactsProvider` in `App.js`; screens `Profiles`,
+  `ProfileDetail`, `ProfileForm` are registered in the unlocked stack only (trial lock).
 
 Rules that keep it working:
 - **RTL is manual** (`flexDirection:'row-reverse'` + `writingDirection:'rtl'`).
@@ -107,10 +207,12 @@ Run lint and typecheck before declaring any task done.
 ## Navigation & Routing
 
 - This project uses **React Navigation** (`@react-navigation/native` +
-  `native-stack`) wired in `App.js`. It does NOT use Expo Router — ignore the
-  generic Expo Router advice below for this repo.
-- Routes: `Home`, `CustomerDetail` ({ contactId }), `CustomerForm` ({ contactId? }),
-  `SmsImport`, `Settings`, `Premium`. Stack animation is `slide_from_left` (RTL feel), headers are hidden
+  `native-stack` + `react-native-drawer-layout`) wired in `App.js`. It does NOT use
+  Expo Router — ignore the generic Expo Router advice below for this repo.
+- Routes (nested `MainStack` inside the drawer): `Home`, `CustomerDetail`
+  ({ contactId }), `CustomerForm` ({ contactId? }), `SmsImport`, `Profiles`,
+  `ProfileDetail`, `ProfileForm`, `Settings`, `Premium`, `Debtors`, `Report`,
+  `Calculator`. Stack animation is `slide_from_left` (RTL feel), headers are hidden
   and each screen renders `ScreenHeader` from `src/components/ui.js`.
 - Screens get only ids; data comes from `ContactsContext`.
 

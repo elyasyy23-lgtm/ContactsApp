@@ -11,6 +11,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initialOf, faLetterIndex } from '../utils/format';
+import { REMINDER_THRESHOLD } from '../utils/reminderGate';
 
 const STORAGE_KEY = '@contacts_data';
 
@@ -29,6 +30,7 @@ function normalizeTransaction(t, index) {
   return {
     id: t.id ? String(t.id) : `${Date.now()}-${index}`,
     type: t.type === TRANSACTION.CREDIT ? TRANSACTION.CREDIT : TRANSACTION.PAYMENT,
+    // Amounts are stored exactly as the user typed them — never scaled.
     amount: String(t.amount ?? '0'),
     note: t.note || '',
     createdAt: t.createdAt || null,
@@ -48,8 +50,14 @@ function normalizeContact(c, index) {
     address: c.address || '',
     // Last digits of the customer's card — used to match incoming bank SMS.
     cardNumber: c.cardNumber || '',
+    // Customer category (see ProfilesContext). '' = بدون دسته.
+    profileId: c.profileId || '',
     letter: c.letter || initialOf(name),
     createdAt: c.createdAt || null,
+    // Anti-spam latch for the automatic reminder: true = the SMS for the current
+    // debt (balance above REMINDER_THRESHOLD) was already handed to the user.
+    // Reset to false as soon as the balance comes back under the threshold.
+    smsSentForCurrentDebt: Boolean(c.smsSentForCurrentDebt),
     transactions: Array.isArray(c.transactions)
       ? c.transactions.map(normalizeTransaction)
       : [],
@@ -57,6 +65,18 @@ function normalizeContact(c, index) {
 }
 
 const ContactsContext = createContext(null);
+
+/**
+ * Clears the automatic-reminder latch the moment the debt is back to/below the
+ * threshold (customer paid), so the NEXT crossing can send exactly one more SMS.
+ * Runs on every transaction change — including payments recorded automatically
+ * from a bank SMS while the detail screen is closed.
+ */
+function settleReminderLatch(contact) {
+  if (!contact.smsSentForCurrentDebt) return contact;
+  if (balanceOf(contact) > REMINDER_THRESHOLD) return contact;
+  return { ...contact, smsSentForCurrentDebt: false };
+}
 
 export function ContactsProvider({ children }) {
   const [contacts, setContacts] = useState([]);
@@ -122,6 +142,17 @@ export function ContactsProvider({ children }) {
     setContacts((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
+  /**
+   * Bulk replace (backup restore / clear-all). Every row goes through
+   * normalizeContact, so a restored file can never poison the store shape.
+   * Returns the number of contacts actually imported.
+   */
+  const importContacts = useCallback((list) => {
+    const rows = Array.isArray(list) ? list : [];
+    setContacts(rows.map(normalizeContact));
+    return rows.length;
+  }, []);
+
   const addTransaction = useCallback((contactId, data) => {
     const transaction = normalizeTransaction({
       ...data,
@@ -131,7 +162,10 @@ export function ContactsProvider({ children }) {
     setContacts((prev) =>
       prev.map((c) =>
         c.id === contactId
-          ? { ...c, transactions: [...c.transactions, transaction] }
+          ? settleReminderLatch({
+              ...c,
+              transactions: [...c.transactions, transaction],
+            })
           : c,
       ),
     );
@@ -142,14 +176,14 @@ export function ContactsProvider({ children }) {
     setContacts((prev) =>
       prev.map((c) => {
         if (c.id !== contactId) return c;
-        return {
+        return settleReminderLatch({
           ...c,
           transactions: c.transactions.map((t) =>
             t.id === transactionId
               ? normalizeTransaction({ ...t, ...data, id: t.id })
               : t,
           ),
-        };
+        });
       }),
     );
   }, []);
@@ -158,13 +192,34 @@ export function ContactsProvider({ children }) {
     setContacts((prev) =>
       prev.map((c) =>
         c.id === contactId
-          ? {
+          ? settleReminderLatch({
               ...c,
               transactions: c.transactions.filter((t) => t.id !== transactionId),
-            }
+            })
           : c,
       ),
     );
+  }, []);
+
+  // A deleted category must not leave dangling ids behind.
+  const clearProfileFromContacts = useCallback((profileId) => {
+    setContacts((prev) =>
+      prev.map((c) => (c.profileId === profileId ? { ...c, profileId: '' } : c)),
+    );
+  }, []);
+
+  // Toggles the automatic-reminder latch. Returns `prev` untouched when the
+  // value is already what we want, so the effect that calls it cannot loop.
+  const setSmsSentForCurrentDebt = useCallback((contactId, sent) => {
+    setContacts((prev) => {
+      const target = prev.find((c) => c.id === contactId);
+      if (!target || Boolean(target.smsSentForCurrentDebt) === Boolean(sent)) {
+        return prev;
+      }
+      return prev.map((c) =>
+        c.id === contactId ? { ...c, smsSentForCurrentDebt: Boolean(sent) } : c,
+      );
+    });
   }, []);
 
   const value = useMemo(
@@ -174,9 +229,12 @@ export function ContactsProvider({ children }) {
       addContact,
       updateContact,
       deleteContact,
+      importContacts,
       addTransaction,
       updateTransaction,
       deleteTransaction,
+      setSmsSentForCurrentDebt,
+      clearProfileFromContacts,
     }),
     [
       contacts,
@@ -184,9 +242,12 @@ export function ContactsProvider({ children }) {
       addContact,
       updateContact,
       deleteContact,
+      importContacts,
       addTransaction,
       updateTransaction,
       deleteTransaction,
+      setSmsSentForCurrentDebt,
+      clearProfileFromContacts,
     ],
   );
 

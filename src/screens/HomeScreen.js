@@ -13,8 +13,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, faText, radius, rtl, rtlCenter, shadows, REMINDER_THRESHOLD } from '../theme';
-import { money, toFa } from '../utils/format';
+import { money, toEn, toFa } from '../utils/format';
 import { balanceOf, sortContacts, useContacts } from '../store/ContactsContext';
+import { lettersOf } from '../utils/grouping';
 import { useSettings } from '../store/SettingsContext';
 import { usePremium } from '../store/PremiumContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
@@ -26,7 +27,7 @@ export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { contacts, deleteContact } = useContacts();
   const { settings } = useSettings();
-  const { premium, freeLimit, isLimitReached, remaining } = usePremium();
+  const { locked } = usePremium();
   const { pending, recentAuto, clearRecentAuto } = useSmsInbox();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -34,41 +35,24 @@ export default function HomeScreen({ navigation }) {
 
   const sorted = useMemo(() => sortContacts(contacts), [contacts]);
 
-  const letters = useMemo(() => {
-    const seen = [];
-    sorted.forEach((c) => {
-      if (c.letter && !seen.includes(c.letter)) seen.push(c.letter);
-    });
-    return [ALL, ...seen];
-  }, [sorted]);
+  // Only letters that actually have customers — shared with the profile view.
+  const letters = useMemo(() => [ALL, ...lettersOf(sorted)], [sorted]);
 
+  // Global search: matches name OR phone, across every letter (Persian digits
+  // typed on the Persian keyboard are folded to Latin before matching).
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return sorted.filter((c) => {
-      const matchesLetter = letter === ALL || c.letter === letter;
-      const matchesQuery =
-        !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q);
-      return matchesLetter && matchesQuery;
-    });
+    const q = toEn(query.trim().toLowerCase());
+    if (q) {
+      return sorted.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.phone || '').includes(q) ||
+          toEn(c.cardNumber || '').includes(q),
+      );
+    }
+    if (letter === ALL) return sorted;
+    return sorted.filter((c) => c.letter === letter);
   }, [sorted, letter, query]);
-
-  const totals = useMemo(() => {
-    let receivable = 0;
-    let payable = 0;
-    let debtors = 0;
-    let urgent = 0;
-    contacts.forEach((c) => {
-      const b = balanceOf(c);
-      if (b > 0) {
-        receivable += b;
-        debtors += 1;
-        if (b > REMINDER_THRESHOLD) urgent += 1;
-      } else if (b < 0) {
-        payable += Math.abs(b);
-      }
-    });
-    return { receivable, payable, debtors, urgent };
-  }, [contacts]);
 
   const confirmDelete = (item) => {
     Alert.alert('حذف مشتری', `«${item.name}» با تمام تراکنش‌هایش حذف شود؟`, [
@@ -85,10 +69,10 @@ export default function HomeScreen({ navigation }) {
     navigation.navigate('CustomerDetail', { contactId: item.id });
 
   const addCustomer = () => {
-    if (isLimitReached(contacts.length)) {
+    if (locked) {
       Alert.alert(
-        'محدودیت نسخه رایگان',
-        `در نسخه رایگان حداکثر ${toFa(freeLimit)} مشتری می‌توانید ثبت کنید. برای افزودن مشتری نامحدود، نسخه ویژه را فعال کنید.`,
+        'دوره آزمایشی به پایان رسید',
+        'برای ثبت مشتری جدید، نسخه کامل را فعال کنید.',
         [
           { text: 'بعداً', style: 'cancel' },
           { text: 'نسخه ویژه', onPress: () => navigation.navigate('Premium') },
@@ -152,44 +136,36 @@ export default function HomeScreen({ navigation }) {
         style={[styles.hero, { paddingTop: insets.top + 12 }]}
       >
         <View style={styles.heroTop}>
+          {/* Search — the only other control in the minimal header. */}
           <TouchableOpacity
             style={styles.heroIcon}
             activeOpacity={0.75}
-            onPress={() => navigation.navigate('SmsImport')}
+            onPress={() => {
+              setSearchOpen((v) => !v);
+              if (searchOpen) setQuery('');
+            }}
           >
-            <Ionicons name="chatbox-ellipses-outline" size={20} color={colors.white} />
+            <Ionicons
+              name={searchOpen ? 'close' : 'search'}
+              size={20}
+              color={colors.white}
+            />
           </TouchableOpacity>
 
           <View style={styles.heroCenter}>
-            <Text style={styles.heroTitle}>eKhata</Text>
-            <Text style={styles.heroSub} numberOfLines={1}>
-              {settings.shopName || 'دفتر حساب مشتریان'}
+            <Text style={styles.heroTitle} numberOfLines={1}>
+              {settings.shopName || 'eKhata'}
             </Text>
           </View>
 
-          <View style={styles.heroRight}>
-            <TouchableOpacity
-              style={styles.heroIcon}
-              activeOpacity={0.75}
-              onPress={() => {
-                setSearchOpen((v) => !v);
-                if (searchOpen) setQuery('');
-              }}
-            >
-              <Ionicons
-                name={searchOpen ? 'close' : 'search'}
-                size={20}
-                color={colors.white}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.heroIcon, styles.heroIconSpaced]}
-              activeOpacity={0.75}
-              onPress={() => navigation.navigate('Settings')}
-            >
-              <Ionicons name="settings-outline" size={20} color={colors.white} />
-            </TouchableOpacity>
-          </View>
+          {/* Hamburger — opens the drawer (slides in from the right). */}
+          <TouchableOpacity
+            style={styles.heroIcon}
+            activeOpacity={0.75}
+            onPress={() => navigation.openDrawer()}
+          >
+            <Ionicons name="menu" size={22} color={colors.white} />
+          </TouchableOpacity>
         </View>
 
         {searchOpen ? (
@@ -206,76 +182,6 @@ export default function HomeScreen({ navigation }) {
           </View>
         ) : null}
       </LinearGradient>
-
-      <View style={styles.summaryWrap}>
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>طلب از مشتریان</Text>
-              <Text style={[styles.summaryValue, { color: colors.red }]}>
-                {money(totals.receivable)}
-              </Text>
-              <Text style={styles.summaryUnit}>تومان</Text>
-            </View>
-
-            <View style={styles.summaryDivider} />
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>بدهی به مشتریان</Text>
-              <Text style={[styles.summaryValue, { color: colors.green }]}>
-                {money(totals.payable)}
-              </Text>
-              <Text style={styles.summaryUnit}>تومان</Text>
-            </View>
-          </View>
-
-          <View style={styles.summaryFooter}>
-            <View style={styles.footerPill}>
-              <Ionicons name="people-outline" size={13} color={colors.primary} />
-              <Text style={styles.footerText}>{toFa(contacts.length)} مشتری</Text>
-            </View>
-            <View style={styles.footerPill}>
-              <Ionicons
-                name="alert-circle-outline"
-                size={13}
-                color={totals.urgent > 0 ? colors.red : colors.textSoft}
-              />
-              <Text
-                style={[
-                  styles.footerText,
-                  totals.urgent > 0 && { color: colors.red, fontWeight: '800' },
-                ]}
-              >
-                {toFa(totals.debtors)} بدهکار
-              </Text>
-            </View>
-            {totals.urgent > 0 ? (
-              <View style={[styles.footerPill, styles.footerPillDanger]}>
-                <Ionicons name="notifications" size={13} color={colors.red} />
-                <Text style={[styles.footerText, { color: colors.red, fontWeight: '800' }]}>
-                  {toFa(totals.urgent)} نیازمند یادآوری
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-
-        {!premium ? (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={styles.planPill}
-            onPress={() => navigation.navigate('Premium')}
-          >
-            <Ionicons name="diamond-outline" size={13} color={colors.amber} />
-            <Text style={styles.planPillText}>
-              نسخه رایگان — {toFa(contacts.length)} از {toFa(freeLimit)} مشتری
-            </Text>
-            <Text style={styles.planPillAction}>
-              {isLimitReached(contacts.length) ? 'ارتقا' : `${toFa(remaining(contacts.length))} جای باقی‌مانده`}
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
 
       {pending.length > 0 || recentAuto.length > 0 ? (
         <View style={styles.smsWrap}>
@@ -368,7 +274,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   hero: {
     paddingHorizontal: 16,
-    paddingBottom: 74,
+    paddingBottom: 18,
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
   },
@@ -381,15 +287,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroIconSpaced: { marginLeft: 8 },
-  heroRight: { flexDirection: 'row', alignItems: 'center' },
   heroCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 6 },
-  heroTitle: { fontSize: 21, fontWeight: '800', color: colors.white, letterSpacing: 0.4 },
-  heroSub: {
-    fontSize: 11.5,
-    color: 'rgba(255,255,255,0.72)',
-    marginTop: 3,
-    ...rtlCenter,
+  heroTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: colors.white,
+    letterSpacing: 0.2,
+    writingDirection: 'rtl',
   },
   searchBox: {
     flexDirection: 'row-reverse',
@@ -398,7 +302,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 12,
     height: 44,
-    marginTop: 14,
+    marginTop: 6,
   },
   searchInput: {
     flex: 1,
@@ -410,63 +314,9 @@ const styles = StyleSheet.create({
     writingDirection: 'rtl',
   },
 
-  summaryWrap: { paddingHorizontal: 16, marginTop: -52 },
-  summaryCard: {
-    backgroundColor: colors.card,
-    borderRadius: radius.xl,
-    paddingTop: 16,
-    paddingBottom: 12,
-    ...shadows.hero,
-  },
-  summaryRow: { flexDirection: 'row', alignItems: 'center' },
-  summaryItem: { flex: 1, alignItems: 'center' },
-  summaryLabel: {
-    fontSize: 11,
-    color: colors.textSoft,
-    fontWeight: '800',
-    ...rtlCenter,
-  },
-  summaryValue: { fontSize: 19, fontWeight: '800', marginTop: 5 },
-  summaryUnit: { fontSize: 10.5, color: colors.muted, marginTop: 2, ...rtlCenter },
-  summaryDivider: { width: 1, height: 44, backgroundColor: colors.border },
-  summaryFooter: {
-    flexDirection: 'row-reverse',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  footerPill: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    backgroundColor: colors.bg,
-    borderRadius: radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginLeft: 6,
-    marginTop: 4,
-  },
-  footerPillDanger: { backgroundColor: colors.redSoft },
-  footerText: { fontSize: 11, color: colors.textSoft, fontWeight: '700', marginRight: 4 },
+  chipsWrap: { marginTop: 12 },
 
-  planPill: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: colors.amberSoft,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginTop: 10,
-  },
-  planPillText: { fontSize: 11, fontWeight: '800', color: '#8A6417', marginRight: 6 },
-  planPillAction: { fontSize: 10.5, fontWeight: '700', color: '#A5814A', marginRight: 8 },
-
-  chipsWrap: { marginTop: 14 },
-
-  smsWrap: { paddingHorizontal: 16, marginTop: 10 },
+  smsWrap: { paddingHorizontal: 16, marginTop: 12 },
   smsBanner: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
