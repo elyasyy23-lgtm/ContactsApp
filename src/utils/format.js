@@ -1,8 +1,28 @@
 // Formatting helpers: money (Toman), amounts, Jalali (Shamsi) dates.
-// The UI is Persian, so every displayed number goes through toFa();
+// The UI is Persian by default, so every displayed number goes through toFa();
 // stored values and user input stay Latin digits (TextInput = numeric).
+//
+// Locale (v12): setLocale('en') switches money/dates/times to Latin digits and
+// Gregorian dates for the English UI. Default is 'fa' so the Node unit tests
+// in scripts/verify.js keep seeing the Persian formats.
 
 const FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+
+let locale = 'fa';
+
+/** 'fa' (default) or 'en' — switched by the Language provider. */
+export function setLocale(next) {
+  locale = next === 'en' ? 'en' : 'fa';
+}
+
+export function getLocale() {
+  return locale;
+}
+
+/** Locale-aware digit rendering for counts/phones: 123 → ۱۲۳ (fa) / 123 (en). */
+export function digits(value) {
+  return locale === 'en' ? String(value ?? '') : toFa(value);
+}
 
 /** "1234" -> "۱۲۳۴" (display only) */
 export function toFa(value) {
@@ -20,9 +40,10 @@ export function group(value) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** Money display for Toman amounts: 1234567 -> "۱٬۲۳۴٬۵۶۷" */
+/** Money display for Toman amounts: 1234567 -> "۱٬۲۳۴٬۵۶۷" (fa) / "1,234,567" (en) */
 export function money(value) {
-  return toFa(group(value)).replace(/,/g, '٬');
+  const grouped = group(value);
+  return locale === 'en' ? grouped : toFa(grouped).replace(/,/g, '٬');
 }
 
 /** Strips separators from a user-typed amount: "1,200,000" -> 1200000 */
@@ -80,18 +101,22 @@ export function toJalali(date = new Date()) {
   return { jy, jm, jd };
 }
 
-/** "۱۴۰۵/۰۸/۱۷" */
+/** fa: "۱۴۰۵/۰۸/۱۷" (Jalali) — en: "2026/11/02" (Gregorian, Latin digits) */
 export function jalaliDate(input = new Date()) {
-  const j = toJalali(input);
+  const d = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(d.getTime())) return '';
+  if (locale === 'en') return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+  const j = toJalali(d);
   if (!j) return '';
   return toFa(`${j.jy}/${pad2(j.jm)}/${pad2(j.jd)}`);
 }
 
-/** "۱۴:۰۵" */
+/** fa: "۱۴:۰۵" — en: "14:05" */
 export function clockTime(input = new Date()) {
   const d = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(d.getTime())) return '';
-  return toFa(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
+  const text = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return locale === 'en' ? text : toFa(text);
 }
 
 /** Timestamp -> { date: "1405/08/17", time: "14:05" } */

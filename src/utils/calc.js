@@ -122,29 +122,32 @@ export function evaluate(input) {
 
 /**
  * Pretty result for the display: strips float noise (0.1+0.2), trims trailing
- * zeros, groups the integer part with ٬ and renders Persian digits.
- * 1234567.5 → "۱٬۲۳۴٬۵۶۷٫۵"
+ * zeros, groups the integer part and renders digits for the locale.
+ * 1234567.5 → fa "۱٬۲۳۴٬۵۶۷٫۵" / en "1,234,567.5"
+ * locale defaults to 'fa' so Node unit tests keep the Persian format.
  */
-export function formatCalcResult(value) {
+export function formatCalcResult(value, locale = 'fa') {
   if (!Number.isFinite(value)) return null;
   const rounded = parseFloat(value.toPrecision(12));
   let [int, frac] = String(rounded).split('.');
   const negative = int.startsWith('-');
   if (negative) int = int.slice(1);
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '٬');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const out = negative ? `-${grouped}${frac ? `.${frac}` : ''}` : `${grouped}${frac ? `.${frac}` : ''}`;
+  if (locale === 'en') return out;
   const fa = '۰۱۲۳۴۵۶۷۸۹';
-  return out.replace(/[0-9]/g, (d) => fa[Number(d)]).replace(/\./g, '٫');
+  return out.replace(/[0-9]/g, (d) => fa[Number(d)]).replace(/\./g, '٫').replace(/,/g, '٬');
 }
 
 /**
- * Live formatting of the expression the user is typing: Persian digits, ٬
- * grouping inside each number token, Persian operator glyphs.
+ * Live formatting of the expression the user is typing: operator glyphs × ÷ in
+ * both locales; Persian digits + ٬ grouping only in fa (en stays ASCII).
  */
-export function formatExpression(expr) {
-  const fa = '۰۱۲۳۴۵۶۷۸۹';
-  return String(expr ?? '')
-    .replace(/[0-9]/g, (d) => fa[Number(d)])
+export function formatExpression(expr, locale = 'fa') {
+  const base = String(expr ?? '')
     .replace(/\*/g, '×')
     .replace(/\//g, '÷');
+  if (locale === 'en') return base;
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  return base.replace(/[0-9]/g, (d) => fa[Number(d)]);
 }

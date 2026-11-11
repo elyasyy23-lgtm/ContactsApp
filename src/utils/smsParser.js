@@ -3,7 +3,7 @@
 // Expo Go cannot read the inbox (no native READ_SMS module), so the app asks the
 // user to paste the bank message. This module turns that raw text into a
 // structured suggestion: amount in Toman, direction and card hint.
-import { groupCard, money } from './format';
+import { group, groupCard, toFa } from './format';
 import { TOMAN_PER_UNIT } from './reminderGate';
 
 const FA_TO_EN = {
@@ -162,7 +162,9 @@ export function parseBankSms(input) {
 export function buildReminder({ customerName, amount, cardNumber, myName }) {
   const name = String(customerName || '').trim();
   const toman = Math.round((Number(amount) || 0) * TOMAN_PER_UNIT);
-  const amountText = money(toman); // Persian digits + thousands separator
+  // Persian digits ALWAYS — the reminder goes to the customer, not to the UI,
+  // so it ignores the app's English locale (group+toFa are locale-independent).
+  const amountText = toFa(group(toman)).replace(/,/g, '٬');
   const card = groupCard(cardNumber) || String(cardNumber || '').trim();
   const owner = String(myName || '').trim();
 
