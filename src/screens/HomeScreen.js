@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -52,6 +53,46 @@ export default function HomeScreen({ navigation }) {
 
   // Only letters that actually have customers — shared with the profile view.
   const letters = useMemo(() => [ALL, ...lettersOf(sorted)], [sorted]);
+
+  // Swipe the list to step through the letter filter. The chip bar follows so
+  // the active letter is never off-screen.
+  const chipsRef = useRef(null);
+  const chipX = useRef({});
+
+  const scrollToChip = useCallback((target) => {
+    const x = chipX.current[target];
+    if (typeof x === 'number' && chipsRef.current) {
+      chipsRef.current.scrollTo({ x: Math.max(0, x - 16), animated: true });
+    }
+  }, []);
+
+  const stepLetter = useCallback(
+    (direction) => {
+      if (letters.length < 2) return;
+      const current = Math.max(0, letters.indexOf(letter));
+      const next = Math.min(letters.length - 1, Math.max(0, current + direction));
+      if (next === current) return;
+      const target = letters[next];
+      setLetter(target);
+      scrollToChip(target);
+    },
+    [letters, letter, scrollToChip],
+  );
+
+  // RTL reading order: swiping LEFT advances to the next letter, RIGHT goes back.
+  // activeOffsetX/failOffsetY keep the vertical list scroll working normally.
+  const swipe = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-18, 18])
+        .runOnJS(true)
+        .onEnd((event) => {
+          if (event.translationX <= -60) stepLetter(1);
+          else if (event.translationX >= 60) stepLetter(-1);
+        }),
+    [stepLetter],
+  );
 
   // Global search: matches name OR phone, across every letter (Persian digits
   // typed on the Persian keyboard are folded to Latin before matching).
@@ -255,47 +296,62 @@ export default function HomeScreen({ navigation }) {
 
       <View style={styles.chipsWrap}>
         <ScrollView
+          ref={chipsRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipsContent}
         >
           {letters.map((item) => (
-            <Chip
+            <View
               key={item}
-              label={item === ALL ? t('همه') : item}
-              active={letter === item}
-              onPress={() => setLetter(item)}
-            />
+              onLayout={(event) => {
+                chipX.current[item] = event.nativeEvent.layout.x;
+              }}
+            >
+              <Chip
+                label={item === ALL ? t('همه') : item}
+                active={letter === item}
+                onPress={() => setLetter(item)}
+              />
+            </View>
           ))}
         </ScrollView>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: insets.bottom + 110 },
-        ]}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <EmptyState
-            icon={contacts.length === 0 ? 'people-outline' : 'search-outline'}
-            title={contacts.length === 0 ? t('هنوز مشتری‌ای ثبت نشده') : t('موردی پیدا نشد')}
-            hint={
-              contacts.length === 0
-                ? t('با دکمه + اولین مشتری را اضافه کنید.')
-                : t('عبارت جستجو یا حرف دیگری را امتحان کنید.')
-            }
-          />
-        }
-        ListFooterComponent={
-          filtered.length > 0 ? (
-            <Text style={styles.listHint}>{t('برای حذف مشتری، کارت را نگه دارید.')}</Text>
-          ) : null
-        }
-      />
+      <GestureDetector gesture={swipe}>
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.bottom + 110 },
+          ]}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <EmptyState
+              icon={contacts.length === 0 ? 'people-outline' : 'search-outline'}
+              title={
+                contacts.length === 0
+                  ? t('هنوز مشتری‌ای ثبت نشده')
+                  : t('موردی پیدا نشد')
+              }
+              hint={
+                contacts.length === 0
+                  ? t('با دکمه + اولین مشتری را اضافه کنید.')
+                  : t('عبارت جستجو یا حرف دیگری را امتحان کنید.')
+              }
+            />
+          }
+          ListFooterComponent={
+            filtered.length > 0 ? (
+              <Text style={styles.listHint}>
+                {t('برای حذف مشتری، کارت را نگه دارید.')}
+              </Text>
+            ) : null
+          }
+        />
+      </GestureDetector>
 
       <TouchableOpacity
         activeOpacity={0.9}
