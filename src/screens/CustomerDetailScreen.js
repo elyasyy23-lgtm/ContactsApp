@@ -313,6 +313,8 @@ export default function CustomerDetailScreen({ navigation, route }) {
     });
     if (!canShare(message)) return;
     try {
+      // Text share only — no file, no extra permission: this works in Expo Go
+      // and in the APK alike (react-native Share → Android ACTION_SEND).
       await Share.share({ message });
     } catch (error) {
       Alert.alert(t('اشتراک‌گذاری ممکن نشد'), t('این گوشی برنامه‌ای برای اشتراک‌گذاری ندارد.'));
@@ -324,63 +326,69 @@ export default function CustomerDetailScreen({ navigation, route }) {
     const stamp = item.createdAt
       ? dateTime(item.createdAt)
       : { date: item.date || '', time: item.time || '' };
+    // The share button is a SIBLING of the row's own touchable, never a child:
+    // on Android a nested Touchable's press is swallowed by the parent (the tap
+    // silently opened the transaction sheet instead of the share sheet).
     return (
-      <TouchableOpacity
-        key={item.id}
-        activeOpacity={0.8}
-        delayLongPress={350}
-        style={styles.transaction}
-        onPress={() => openSheet(item.type, item)}
-        onLongPress={() => confirmDeleteTransaction(item)}
-      >
-        <View
-          style={[
-            styles.transactionIcon,
-            { backgroundColor: isPayment ? colors.greenSoft : colors.redSoft },
-          ]}
+      <View key={item.id} style={styles.transaction}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          delayLongPress={350}
+          style={styles.transactionTap}
+          onPress={() => openSheet(item.type, item)}
+          onLongPress={() => confirmDeleteTransaction(item)}
         >
-          <Ionicons
-            name={isPayment ? 'arrow-down' : 'arrow-up'}
-            size={16}
-            color={isPayment ? colors.green : colors.red}
-          />
-        </View>
-
-        <View style={styles.transactionMain}>
-          <Text style={styles.transactionTitle}>
-            {isPayment ? t('دریافت وجه') : t('ثبت بدهی')}
-          </Text>
-          <Text style={styles.transactionMeta}>
-            {stamp.date}
-            {stamp.time ? ` • ${stamp.time}` : ''}
-          </Text>
-          {item.note ? (
-            <Text style={styles.transactionNote} numberOfLines={1}>
-              {item.note}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={styles.transactionEnd}>
-          <Text
+          <View
             style={[
-              styles.transactionAmount,
-              { color: isPayment ? colors.green : colors.red },
+              styles.transactionIcon,
+              { backgroundColor: isPayment ? colors.greenSoft : colors.redSoft },
             ]}
           >
-            {isPayment ? '−' : '+'} {money(item.amount)}
-          </Text>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            hitSlop={10}
-            style={styles.transactionShare}
-            onPress={() => shareTransaction(item)}
-            accessibilityLabel={t('اشتراک‌گذاری رسید')}
-          >
-            <Ionicons name="share-social-outline" size={15} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
+            <Ionicons
+              name={isPayment ? 'arrow-down' : 'arrow-up'}
+              size={16}
+              color={isPayment ? colors.green : colors.red}
+            />
+          </View>
+
+          <View style={styles.transactionMain}>
+            <Text style={styles.transactionTitle}>
+              {isPayment ? t('دریافت وجه') : t('ثبت بدهی')}
+            </Text>
+            <Text style={styles.transactionMeta}>
+              {stamp.date}
+              {stamp.time ? ` • ${stamp.time}` : ''}
+            </Text>
+            {item.note ? (
+              <Text style={styles.transactionNote} numberOfLines={1}>
+                {item.note}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.transactionEnd}>
+            <Text
+              style={[
+                styles.transactionAmount,
+                { color: isPayment ? colors.green : colors.red },
+              ]}
+            >
+              {isPayment ? '−' : '+'} {money(item.amount)}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          hitSlop={8}
+          style={styles.transactionShare}
+          onPress={() => shareTransaction(item)}
+          accessibilityRole="button"
+          accessibilityLabel={t('اشتراک‌گذاری رسید')}
+        >
+          <Ionicons name="share-social-outline" size={16} color={colors.muted} />
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -756,9 +764,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.card,
     borderRadius: radius.lg,
-    padding: 12,
+    paddingVertical: 12,
+    paddingRight: 12,
+    paddingLeft: 8,
     marginBottom: 9,
     ...shadows.card,
+  },
+  transactionTap: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
   },
   transactionHint: {
     fontSize: 10.5,
@@ -785,7 +800,7 @@ const styles = StyleSheet.create({
   },
   transactionEnd: { alignItems: 'flex-end' },
   transactionAmount: { fontSize: 13.5, fontWeight: '800' },
-  transactionShare: { marginTop: 6, padding: 2 },
+  transactionShare: { padding: 6 },
 
   deleteContact: {
     flexDirection: 'row-reverse',
