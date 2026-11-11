@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -81,17 +81,18 @@ export default function HomeScreen({ navigation }) {
 
   // RTL reading order: swiping LEFT advances to the next letter, RIGHT goes back.
   // activeOffsetX/failOffsetY keep the vertical list scroll working normally.
-  const swipe = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetX([-24, 24])
-        .failOffsetY([-18, 18])
-        .runOnJS(true)
-        .onEnd((event) => {
+  const swipe = usePanGesture(
+    useMemo(
+      () => ({
+        activeOffsetX: [-24, 24],
+        failOffsetY: [-18, 18],
+        onFinalize: (event) => {
           if (event.translationX <= -60) stepLetter(1);
           else if (event.translationX >= 60) stepLetter(-1);
-        }),
-    [stepLetter],
+        },
+      }),
+      [stepLetter],
+    ),
   );
 
   // Global search: matches name OR phone, across every letter (Persian digits
@@ -318,7 +319,7 @@ export default function HomeScreen({ navigation }) {
         </ScrollView>
       </View>
 
-      <GestureDetector gesture={swipe}>
+      <GestureDetector gesture={swipe} touchAction="pan-y">
         <FlatList
           data={filtered}
           keyExtractor={(item) => item.id}
