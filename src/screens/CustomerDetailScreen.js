@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Linking,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -45,6 +46,7 @@ import {
   ScreenHeader,
 } from '../components/ui';
 import AmountSheet from '../components/AmountSheet';
+import { buildReceipt, canShare } from '../utils/share';
 import { t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -294,6 +296,29 @@ export default function CustomerDetailScreen({ navigation, route }) {
     ]);
   };
 
+  // Send this one transaction to the customer as a receipt (WhatsApp, SMS…).
+  const shareTransaction = async (item) => {
+    const stamp = item.createdAt
+      ? dateTime(item.createdAt)
+      : { date: item.date || '', time: item.time || '' };
+    const message = buildReceipt({
+      shopName: settings.shopName,
+      customerName: contact.name,
+      type: item.type,
+      amount: item.amount,
+      date: stamp.date,
+      time: stamp.time,
+      note: item.note,
+      balance,
+    });
+    if (!canShare(message)) return;
+    try {
+      await Share.share({ message });
+    } catch (error) {
+      Alert.alert(t('اشتراک‌گذاری ممکن نشد'), t('این گوشی برنامه‌ای برای اشتراک‌گذاری ندارد.'));
+    }
+  };
+
   const renderTransaction = (item) => {
     const isPayment = item.type === TRANSACTION.PAYMENT;
     const stamp = item.createdAt
@@ -336,14 +361,25 @@ export default function CustomerDetailScreen({ navigation, route }) {
           ) : null}
         </View>
 
-        <Text
-          style={[
-            styles.transactionAmount,
-            { color: isPayment ? colors.green : colors.red },
-          ]}
-        >
-          {isPayment ? '−' : '+'} {money(item.amount)}
-        </Text>
+        <View style={styles.transactionEnd}>
+          <Text
+            style={[
+              styles.transactionAmount,
+              { color: isPayment ? colors.green : colors.red },
+            ]}
+          >
+            {isPayment ? '−' : '+'} {money(item.amount)}
+          </Text>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            hitSlop={10}
+            style={styles.transactionShare}
+            onPress={() => shareTransaction(item)}
+            accessibilityLabel={t('اشتراک‌گذاری رسید')}
+          >
+            <Ionicons name="share-social-outline" size={15} color={colors.muted} />
+          </TouchableOpacity>
+        </View>
       </TouchableOpacity>
     );
   };
@@ -747,7 +783,9 @@ const styles = StyleSheet.create({
     marginTop: 3,
     ...faText,
   },
+  transactionEnd: { alignItems: 'flex-end' },
   transactionAmount: { fontSize: 13.5, fontWeight: '800' },
+  transactionShare: { marginTop: 6, padding: 2 },
 
   deleteContact: {
     flexDirection: 'row-reverse',

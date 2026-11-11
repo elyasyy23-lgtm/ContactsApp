@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Share,
   Platform,
   ScrollView,
   StyleSheet,
@@ -28,6 +29,7 @@ import { useProfiles } from '../store/ProfilesContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
 import { ScreenHeader } from '../components/ui';
 import { BUILD_STAMP } from '../buildInfo';
+import { buildAppShareText, canShare } from '../utils/share';
 import { LANGUAGES, t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -254,6 +256,17 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
+  // ── Share the app ────────────────────────────────────────────────────────
+  const doShareApp = async () => {
+    const message = buildAppShareText({ version: BUILD_STAMP });
+    if (!canShare(message)) return;
+    try {
+      await Share.share({ message });
+    } catch (error) {
+      Alert.alert(t('اشتراک‌گذاری ممکن نشد'), t('این گوشی برنامه‌ای برای اشتراک‌گذاری ندارد.'));
+    }
+  };
+
   const save = () => {
     if (!myName.trim()) {
       Alert.alert(t('نام لازم است'), 'نام خود را وارد کنید تا در پیام یادآوری درج شود.');
@@ -340,6 +353,16 @@ export default function SettingsScreen({ navigation }) {
           <Text style={styles.langHint}>
             {t('تاریخ‌ها و اعداد با زبان انتخابی نمایش داده می‌شوند.')}
           </Text>
+
+          <View style={styles.shareCard}>
+            <DataRow
+              icon="share-social-outline"
+              tone="purple"
+              title={t('اشتراک‌گذاری برنامه')}
+              sub={t('لینک و توضیح برنامه را برای دیگران بفرستید')}
+              onPress={doShareApp}
+            />
+          </View>
 
           <Text style={styles.sectionTitle}>{t('پیش‌نمایش پیام یادآوری')}</Text>
           <View style={styles.previewCard}>
@@ -544,6 +567,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 4,
     ...rtl,
+  },
+  shareCard: {
+    marginTop: 14,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    paddingHorizontal: 4,
+    ...shadows.card,
   },
   langCard: {
     flexDirection: 'row-reverse',

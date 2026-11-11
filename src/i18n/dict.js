@@ -385,3 +385,19 @@ Object.assign(en, {
   'دوره آزمایشی — {n} روز باقی‌مانده': 'Trial — {n} days left',
   'eKhata — نسخه {v}': 'eKhata — version {v}',
 });
+
+// Share texts (receipt + app link).
+Object.assign(en, {
+  'رسید {shop}': '{shop} — receipt',
+  'مشتری: {name}': 'Customer: {name}',
+  'تاریخ: {date}': 'Date: {date}',
+  'یادداشت: {note}': 'Note: {note}',
+  'مانده حساب: {amount} تومان': 'Balance: {amount} Toman',
+  'بدهی مشتری: {amount} تومان': 'Customer owes: {amount} Toman',
+  'بستانکاری مشتری: {amount} تومان': 'Customer credit: {amount} Toman',
+  'اشتراک‌گذاری رسید': 'Share receipt',
+  'اشتراک‌گذاری برنامه': 'Share the app',
+  'لینک و توضیح برنامه را برای دیگران بفرستید': 'Send the app link and description to others',
+  'اشتراک‌گذاری ممکن نشد': 'Sharing failed',
+  'این گوشی برنامه‌ای برای اشتراک‌گذاری ندارد.': 'This phone has no app to share with.',
+});
