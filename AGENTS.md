@@ -448,6 +448,13 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   `canShare`). Settings → «اشتراک‌گذاری برنامه»; CustomerDetail → per-transaction
   share icon (`transactionShare`/`transactionEnd` styles). Receipts show Toman
   (`amount * TOMAN_PER_UNIT`), never ledger units.
+  Share is **text only** (`react-native` `Share.share({message})`) — works in Expo Go
+  and the APK; no file/`expo-sharing` needed. **Never nest a Touchable inside the row's
+  Touchable**: on Android the parent swallows the child press (the receipt share icon
+  silently opened the transaction sheet). The row is `View(transaction)` →
+  `TouchableOpacity(transactionTap)` + sibling `TouchableOpacity(transactionShare)`.
+  Known-good verify: `node scripts/verify.js` can't catch this class of bug — a device
+  test is the only proof.
 - **Green deposit banner**: `SmsInboxContext.recentAuto` entries now carry
   `contactId, bank, card, body, smsAt`. HomeScreen banner is a TouchableOpacity →
   Modal (customer, Toman amount, date/time, bank, raw SMS). Closing the modal calls
