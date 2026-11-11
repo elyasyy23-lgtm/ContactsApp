@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,8 +14,17 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, faText, radius, rtl, rtlCenter, shadows, REMINDER_THRESHOLD } from '../theme';
-import { digits, money, toEn, toFa } from '../utils/format';
+import {
+  colors,
+  faText,
+  radius,
+  rtl,
+  rtlCenter,
+  shadows,
+  REMINDER_THRESHOLD,
+  TOMAN_PER_UNIT,
+} from '../theme';
+import { dateTime, digits, money, toEn, toFa } from '../utils/format';
 import { balanceOf, sortContacts, useContacts } from '../store/ContactsContext';
 import { lettersOf } from '../utils/grouping';
 import { useSettings } from '../store/SettingsContext';
@@ -35,6 +46,7 @@ export default function HomeScreen({ navigation }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [letter, setLetter] = useState(ALL);
+  const [autoOpen, setAutoOpen] = useState(false);
 
   const sorted = useMemo(() => sortContacts(contacts), [contacts]);
 
@@ -76,6 +88,19 @@ export default function HomeScreen({ navigation }) {
 
   const openDetail = (item) =>
     navigation.navigate('CustomerDetail', { contactId: item.id });
+
+  // Closing the deposit modal acknowledges the deposits → the banner clears.
+  const closeAutoModal = () => {
+    setAutoOpen(false);
+    clearRecentAuto();
+  };
+
+  const openAutoCustomer = (entry) => {
+    closeAutoModal();
+    if (entry.contactId) {
+      navigation.navigate('CustomerDetail', { contactId: entry.contactId });
+    }
+  };
 
   const addCustomer = () => {
     if (locked) {
@@ -209,7 +234,11 @@ export default function HomeScreen({ navigation }) {
           ) : null}
 
           {recentAuto.length > 0 ? (
-            <View style={styles.smsAuto}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={styles.smsAuto}
+              onPress={() => setAutoOpen(true)}
+            >
               <Ionicons name="checkmark-circle" size={16} color={colors.green} />
               <Text style={styles.smsAutoText} numberOfLines={2}>
                 {recentAuto.length === 1
@@ -219,7 +248,7 @@ export default function HomeScreen({ navigation }) {
               <TouchableOpacity onPress={clearRecentAuto} hitSlop={10}>
                 <Ionicons name="close" size={15} color={colors.muted} />
               </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           ) : null}
         </View>
       ) : null}
@@ -275,6 +304,72 @@ export default function HomeScreen({ navigation }) {
       >
         <Ionicons name="add" size={32} color={colors.white} />
       </TouchableOpacity>
+
+      {/* The green banner's details: every deposit this session recorded by
+          itself. Closing acknowledges them (the banner disappears). */}
+      <Modal
+        visible={autoOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAutoModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeAutoModal}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalHead}>
+              <View style={styles.modalTitleWrap}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.green} />
+                <Text style={styles.modalTitle}>
+                  {t('واریزهای خودکار ثبت‌شده')}
+                </Text>
+              </View>
+              <Text style={styles.modalCount}>
+                {t('{n} واریز', { n: toFa(recentAuto.length) })}
+              </Text>
+            </View>
+
+            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+              {recentAuto.map((entry) => {
+                const stamp = entry.smsAt || entry.at ? dateTime(entry.smsAt || entry.at) : null;
+                return (
+                  <TouchableOpacity
+                    key={entry.id}
+                    activeOpacity={0.8}
+                    style={styles.autoRow}
+                    onPress={() => openAutoCustomer(entry)}
+                  >
+                    <View style={styles.autoRowTop}>
+                      <Text style={styles.autoName} numberOfLines={1}>
+                        {entry.name}
+                      </Text>
+                      <Text style={styles.autoAmount}>
+                        {money((entry.amount || 0) * TOMAN_PER_UNIT)}
+                      </Text>
+                    </View>
+                    <Text style={styles.autoMeta}>
+                      {t('تومان')}
+                      {stamp ? ` • ${stamp.date} • ${stamp.time}` : ''}
+                      {entry.bank ? ` • ${t('بانک {bank}', { bank: entry.bank })}` : ''}
+                    </Text>
+                    {entry.body ? (
+                      <Text style={styles.autoBody} numberOfLines={3}>
+                        {entry.body}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              activeOpacity={0.88}
+              style={styles.modalClose}
+              onPress={closeAutoModal}
+            >
+              <Text style={styles.modalCloseText}>{t('بستن')}</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -399,6 +494,61 @@ const styles = StyleSheet.create({
     ...rtlCenter,
   },
 
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+  },
+  modalCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: 16,
+    maxHeight: '78%',
+    ...shadows.float,
+  },
+  modalHead: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitleWrap: { flexDirection: 'row-reverse', alignItems: 'center', flex: 1 },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.text,
+    marginRight: 7,
+    ...rtl,
+  },
+  modalCount: { fontSize: 11, fontWeight: '700', color: colors.muted },
+  modalList: { maxHeight: 380 },
+  autoRow: {
+    backgroundColor: colors.greenSoft,
+    borderRadius: radius.lg,
+    padding: 11,
+    marginBottom: 8,
+  },
+  autoRowTop: { flexDirection: 'row-reverse', alignItems: 'center' },
+  autoName: { flex: 1, fontSize: 13.5, fontWeight: '800', color: colors.text, ...rtl },
+  autoAmount: { fontSize: 13.5, fontWeight: '800', color: colors.greenDark },
+  autoMeta: { fontSize: 10.5, color: colors.greenDark, marginTop: 4, ...rtl },
+  autoBody: {
+    fontSize: 11,
+    color: colors.textSoft,
+    marginTop: 6,
+    lineHeight: 17,
+    ...rtl,
+  },
+  modalClose: {
+    marginTop: 6,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: { fontSize: 13.5, fontWeight: '800', color: colors.white },
   fab: {
     position: 'absolute',
     right: 20,

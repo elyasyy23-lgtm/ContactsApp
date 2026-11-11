@@ -178,10 +178,17 @@ export function SmsInboxProvider({ children }) {
 
         if (result.confidence === 'high' && result.match) {
           recordPayment(item, result.match);
+          // Everything the banner modal needs to explain the deposit: who,
+          // how much, when the SMS arrived and the raw bank text.
           auto.push({
             id: sms.id,
+            contactId: result.match.id,
             name: result.match.name,
             amount: item.amount,
+            bank: item.bank,
+            card: item.card,
+            body: sms.body,
+            smsAt: item.timestamp,
             at: Date.now(),
           });
         } else {

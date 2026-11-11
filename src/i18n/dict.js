@@ -401,3 +401,10 @@ Object.assign(en, {
   'اشتراک‌گذاری ممکن نشد': 'Sharing failed',
   'این گوشی برنامه‌ای برای اشتراک‌گذاری ندارد.': 'This phone has no app to share with.',
 });
+
+// Deposit banner modal.
+Object.assign(en, {
+  'واریزهای خودکار ثبت‌شده': 'Auto-recorded deposits',
+  'بستن': 'Close',
+  '{n} واریز': '{n} deposits',
+});
