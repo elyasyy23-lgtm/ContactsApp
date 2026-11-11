@@ -124,6 +124,23 @@ try {
   assert.strictEqual(fmt.parseAmount('1,250,000'), 1250000);
   assert.strictEqual(fmt.groupCard('6037997412345678'), '6037 9974 1234 5678');
 
+  // ── language switch: digits AND calendar follow the locale ───────────────
+  const sample = new Date(2026, 10, 2, 14, 5, 0); // 2026-11-02 14:05
+  assert.strictEqual(fmt.getLocale(), 'fa', 'default locale is Persian');
+  assert.strictEqual(fmt.digits(1405), '۱۴۰۵');
+  assert.strictEqual(fmt.jalaliDate(sample), '۱۴۰۵/۰۸/۱۱', 'fa date is Jalali');
+  assert.strictEqual(fmt.clockTime(sample), '۱۴:۰۵');
+  assert.strictEqual(fmt.money(1234567), '۱٬۲۳۴٬۵۶۷');
+  fmt.setLocale('en');
+  assert.strictEqual(fmt.digits(1405), '1405');
+  assert.strictEqual(fmt.jalaliDate(sample), '2026/11/02', 'en date is Gregorian');
+  assert.strictEqual(fmt.clockTime(sample), '14:05');
+  assert.strictEqual(fmt.money(1234567), '1,234,567');
+  assert.strictEqual(fmt.dateTime(sample.getTime()).date, '2026/11/02');
+  fmt.setLocale('fa');
+  assert.strictEqual(fmt.jalaliDate(sample), '۱۴۰۵/۰۸/۱۱', 'switching back restores Jalali');
+  assert.strictEqual(fmt.dateTime(sample.getTime()).date, '۱۴۰۵/۰۸/۱۱');
+
   // ── money() must print the full value, never a shortened one ─────────────
   assert.strictEqual(fmt.money(308000), '۳۰۸٬۰۰۰', 'money() shows every digit');
   assert.strictEqual(fmt.money(308), '۳۰۸', 'money() never invents thousands');
