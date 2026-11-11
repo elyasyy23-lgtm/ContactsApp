@@ -502,7 +502,7 @@ export default function SettingsScreen({ navigation }) {
 
           <View style={styles.lockCard}>
             <View style={styles.lockIcon}>
-              <Ionicons name="shield-lock-outline" size={19} color={colors.primary} />
+              <Ionicons name="lock-closed-outline" size={19} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.lockTitle}>{t('قفل برنامه')}</Text>
