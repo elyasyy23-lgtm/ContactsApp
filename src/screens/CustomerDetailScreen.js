@@ -45,30 +45,33 @@ import {
   ScreenHeader,
 } from '../components/ui';
 import AmountSheet from '../components/AmountSheet';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 /** One line explaining what the reminder banner is doing for this debt. */
 function reminderHintFor(mode) {
   switch (mode) {
     case REMINDER_UI.OFF:
-      return 'ارسال پیامک یادآوری برای این مشتری خاموش شده است (از فرم مشتری).';
+      return t('ارسال پیامک یادآوری برای این مشتری خاموش شده است (از فرم مشتری).');
     case REMINDER_UI.SENT:
-      return 'یادآوری خودکار این بدهی ارسال شد؛ برای همین بدهی پیامک دیگری فرستاده نمی‌شود.';
+      return t('یادآوری خودکار این بدهی ارسال شد؛ برای همین بدهی پیامک دیگری فرستاده نمی‌شود.');
     case REMINDER_UI.ARMED:
-      return 'یادآوری خودکار فعال است — پیامک بی‌صدا و بدون باز شدن برنامه پیامک ارسال می‌شود.';
+      return t('یادآوری خودکار فعال است — پیامک بی‌صدا و بدون باز شدن برنامه پیامک ارسال می‌شود.');
     case REMINDER_UI.PERMISSION:
-      return 'برای ارسال خودکار، یک بار اجازه ارسال پیامک لازم است.';
+      return t('برای ارسال خودکار، یک بار اجازه ارسال پیامک لازم است.');
     case REMINDER_UI.SETTINGS:
-      return 'نام و شماره کارت را در تنظیمات وارد کنید تا ارسال خودکار فعال شود.';
+      return t('نام و شماره کارت را در تنظیمات وارد کنید تا ارسال خودکار فعال شود.');
     case REMINDER_UI.PHONE:
-      return 'برای این مشتری شماره موبایل ثبت نشده است.';
+      return t('برای این مشتری شماره موبایل ثبت نشده است.');
     case REMINDER_UI.UNAVAILABLE:
-      return 'ارسال خودکار در این نسخه ممکن نیست — با دکمه، پیامک را بفرستید.';
+      return t('ارسال خودکار در این نسخه ممکن نیست — با دکمه، پیامک را بفرستید.');
     default:
       return '';
   }
 }
 
 export default function CustomerDetailScreen({ navigation, route }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contactId } = route.params || {};
   const contact = useContact(contactId);
@@ -123,12 +126,12 @@ export default function CustomerDetailScreen({ navigation, route }) {
     const phone = (contact.phone || '').replace(/[^0-9+]/g, '');
     if (!phone) {
       Alert.alert(
-        'شماره موبایل ثبت نشده',
-        'برای تماس یا پیامک، شماره موبایل این مشتری را وارد کنید.',
+        t('شماره موبایل ثبت نشده'),
+        t('برای تماس یا پیامک، شماره موبایل این مشتری را وارد کنید.'),
         [
-          { text: 'انصراف', style: 'cancel' },
+          { text: t('انصراف'), style: 'cancel' },
           {
-            text: 'ویرایش مشتری',
+            text: t('ویرایش مشتری'),
             onPress: () =>
               navigation.navigate('CustomerForm', { contactId: contact.id }),
           },
@@ -140,7 +143,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
       // Android 11 package visibility makes canOpenURL() unreliable — just try.
       await Linking.openURL(`${scheme}:${phone}`);
     } catch {
-      Alert.alert('باز نشد', 'برنامه‌ای برای تماس یا پیامک روی این گوشی پیدا نشد.');
+      Alert.alert(t('باز نشد'), t('برنامه‌ای برای تماس یا پیامک روی این گوشی پیدا نشد.'));
     }
   };
 
@@ -219,11 +222,11 @@ export default function CustomerDetailScreen({ navigation, route }) {
   if (!contact) {
     return (
       <View style={styles.root}>
-        <ScreenHeader title="مشتری" onBack={() => navigation.goBack()} />
+        <ScreenHeader title={t('مشتری')} onBack={() => navigation.goBack()} />
         <EmptyState
           icon="person-outline"
-          title="مشتری پیدا نشد"
-          hint="ممکن است حذف شده باشد."
+          title={t('مشتری پیدا نشد')}
+          hint={t('ممکن است حذف شده باشد.')}
         />
       </View>
     );
@@ -263,13 +266,13 @@ export default function CustomerDetailScreen({ navigation, route }) {
   const confirmDeleteTransaction = (item) => {
     const isPayment = item.type === TRANSACTION.PAYMENT;
     Alert.alert(
-      'حذف تراکنش',
-      `${isPayment ? 'دریافت وجه' : 'ثبت بدهی'} به مبلغ ${money(item.amount)} تومان حذف شود؟`,
+      t('حذف تراکنش'),
+      `${isPayment ? t('دریافت وجه') : t('ثبت بدهی')} به مبلغ ${money(item.amount)} تومان حذف شود؟`,
       [
-        { text: 'انصراف', style: 'cancel' },
-        { text: 'ویرایش', onPress: () => openSheet(item.type, item) },
+        { text: t('انصراف'), style: 'cancel' },
+        { text: t('ویرایش'), onPress: () => openSheet(item.type, item) },
         {
-          text: 'حذف',
+          text: t('حذف'),
           style: 'destructive',
           onPress: () => deleteTransaction(contact.id, item.id),
         },
@@ -278,10 +281,10 @@ export default function CustomerDetailScreen({ navigation, route }) {
   };
 
   const confirmDeleteContact = () => {
-    Alert.alert('حذف مشتری', `«${contact.name}» با تمام تراکنش‌ها حذف شود؟`, [
-      { text: 'انصراف', style: 'cancel' },
+    Alert.alert(t('حذف مشتری'), `«${contact.name}» با تمام تراکنش‌ها حذف شود؟`, [
+      { text: t('انصراف'), style: 'cancel' },
       {
-        text: 'حذف',
+        text: t('حذف'),
         style: 'destructive',
         onPress: () => {
           deleteContact(contact.id);
@@ -320,7 +323,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
 
         <View style={styles.transactionMain}>
           <Text style={styles.transactionTitle}>
-            {isPayment ? 'دریافت وجه' : 'ثبت بدهی'}
+            {isPayment ? t('دریافت وجه') : t('ثبت بدهی')}
           </Text>
           <Text style={styles.transactionMeta}>
             {stamp.date}
@@ -349,7 +352,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
     <View style={styles.root}>
       <ScreenHeader
         title={contact.name}
-        subtitle={contact.phone ? toFa(contact.phone) : 'بدون شماره تلفن'}
+        subtitle={contact.phone ? toFa(contact.phone) : t('بدون شماره تلفن')}
         onBack={() => navigation.goBack()}
         right={
           <IconButton
@@ -373,7 +376,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
               tone={needsReminder ? 'red' : 'purple'}
             />
             <View style={styles.balanceInfo}>
-              <Text style={styles.balanceLabel}>مانده حساب</Text>
+              <Text style={styles.balanceLabel}>{t('مانده حساب')}</Text>
               <Text
                 style={[
                   styles.balanceValue,
@@ -383,7 +386,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
                   },
                 ]}
               >
-                {money(balance)} تومان
+                {money(balance)} {t('تومان')}
               </Text>
               {profile ? (
                 <View style={styles.profilePill}>
@@ -418,21 +421,21 @@ export default function CustomerDetailScreen({ navigation, route }) {
                   },
                 ]}
               >
-                {balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه شده'}
+                {balance > 0 ? t('بدهکار') : balance < 0 ? t('بستانکار') : t('تسویه شده')}
               </Text>
             </View>
           </View>
 
           <View style={styles.balanceStats}>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>کل دریافت‌شده</Text>
+              <Text style={styles.statLabel}>{t('کل دریافت‌شده')}</Text>
               <Text style={[styles.statValue, { color: colors.green }]}>
                 {money(totals.paid)}
               </Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>کل بدهی</Text>
+              <Text style={styles.statLabel}>{t('کل بدهی')}</Text>
               <Text style={[styles.statValue, { color: colors.red }]}>
                 {money(totals.credited)}
               </Text>
@@ -448,7 +451,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
               onPress={callCustomer}
             >
               <Ionicons name="call-outline" size={18} color={colors.primary} />
-              <Text style={styles.quickText}>تماس</Text>
+              <Text style={styles.quickText}>{t('تماس')}</Text>
             </TouchableOpacity>
             <View style={{ width: 10 }} />
             <TouchableOpacity
@@ -457,7 +460,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
               onPress={smsCustomer}
             >
               <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
-              <Text style={styles.quickText}>پیامک</Text>
+              <Text style={styles.quickText}>{t('پیامک')}</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -472,7 +475,11 @@ export default function CustomerDetailScreen({ navigation, route }) {
               />
             </View>
             <View style={styles.reminderTextWrap}>
-              <Text style={styles.reminderTitle}>بدهی بالای {money(REMINDER_THRESHOLD * TOMAN_PER_UNIT)} تومان</Text>
+              <Text style={styles.reminderTitle}>
+                {t('بدهی بالای {amount} تومان', {
+                  amount: money(REMINDER_THRESHOLD * TOMAN_PER_UNIT),
+                })}
+              </Text>
               <Text style={styles.reminderText}>{reminderHintFor(reminderUi.mode)}</Text>
             </View>
             {/* A button appears ONLY when the automatic sender cannot do it
@@ -483,7 +490,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
                 style={styles.reminderBtn}
                 onPress={grantPermission}
               >
-                <Text style={styles.reminderBtnText}>اجازه ارسال</Text>
+                <Text style={styles.reminderBtnText}>{t('اجازه ارسال')}</Text>
               </TouchableOpacity>
             ) : null}
             {reminderUi.mode === REMINDER_UI.SETTINGS ? (
@@ -492,7 +499,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
                 style={styles.reminderBtn}
                 onPress={openSettings}
               >
-                <Text style={styles.reminderBtnText}>تنظیمات</Text>
+                <Text style={styles.reminderBtnText}>{t('تنظیمات')}</Text>
               </TouchableOpacity>
             ) : null}
             {reminderUi.mode === REMINDER_UI.PHONE ? (
@@ -503,7 +510,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
                   navigation.navigate('CustomerForm', { contactId: contact.id })
                 }
               >
-                <Text style={styles.reminderBtnText}>شماره</Text>
+                <Text style={styles.reminderBtnText}>{t('شماره')}</Text>
               </TouchableOpacity>
             ) : null}
             {reminderUi.mode === REMINDER_UI.UNAVAILABLE ? (
@@ -512,7 +519,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
                 style={styles.reminderBtn}
                 onPress={sendReminder}
               >
-                <Text style={styles.reminderBtnText}>ارسال دستی</Text>
+                <Text style={styles.reminderBtnText}>{t('ارسال دستی')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -520,14 +527,14 @@ export default function CustomerDetailScreen({ navigation, route }) {
 
         <View style={styles.actionsRow}>
           <ActionButton
-            label="دریافت وجه"
+            label={t('دریافت وجه')}
             icon="arrow-down"
             tone="green"
             onPress={() => openSheet(TRANSACTION.PAYMENT)}
           />
           <View style={{ width: 10 }} />
           <ActionButton
-            label="ثبت بدهی"
+            label={t('ثبت بدهی')}
             icon="arrow-up"
             tone="red"
             onPress={() => openSheet(TRANSACTION.CREDIT)}
@@ -544,25 +551,25 @@ export default function CustomerDetailScreen({ navigation, route }) {
             onPress={() => sendReminder()}
           >
             <Ionicons name="paper-plane-outline" size={15} color={colors.primary} />
-            <Text style={styles.reminderGhostText}>ارسال پیامک تسویه</Text>
+            <Text style={styles.reminderGhostText}>{t('ارسال پیامک تسویه')}</Text>
           </TouchableOpacity>
         ) : null}
 
         <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>تراکنش‌ها</Text>
-          <Text style={styles.sectionCount}>{toFa(transactions.length)} مورد</Text>
+          <Text style={styles.sectionTitle}>{t('تراکنش‌ها')}</Text>
+          <Text style={styles.sectionCount}>{t('{n} مورد', { n: toFa(transactions.length) })}</Text>
         </View>
 
         {transactions.length === 0 ? (
           <EmptyState
             icon="receipt-outline"
-            title="هنوز تراکنشی ثبت نشده"
-            hint="با دکمه‌های بالا اولین دریافت یا بدهی را ثبت کنید."
+            title={t('هنوز تراکنشی ثبت نشده')}
+            hint={t('با دکمه‌های بالا اولین دریافت یا بدهی را ثبت کنید.')}
           />
         ) : (
           <>
             <Text style={styles.transactionHint}>
-              برای حذف، انگشت را روی تراکنش نگه دارید.
+              {t('برای حذف، انگشت را روی تراکنش نگه دارید.')}
             </Text>
             <View>{transactions.map(renderTransaction)}</View>
           </>
@@ -574,7 +581,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
           onPress={confirmDeleteContact}
         >
           <Ionicons name="trash-outline" size={16} color={colors.red} />
-          <Text style={styles.deleteContactText}>حذف این مشتری</Text>
+          <Text style={styles.deleteContactText}>{t('حذف این مشتری')}</Text>
         </TouchableOpacity>
       </ScrollView>
 

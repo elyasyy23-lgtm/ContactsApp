@@ -19,8 +19,11 @@ import { contactsOfProfile, PROFILE_NAME_MAX } from '../utils/profiles';
 import { useContacts } from '../store/ContactsContext';
 import { useProfiles } from '../store/ProfilesContext';
 import { IconButton, ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 export default function ProfileFormScreen({ navigation, route }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { profileId } = route.params || {};
   const { profiles, addProfile, updateProfile, deleteProfile, profileById } = useProfiles();
@@ -33,14 +36,14 @@ export default function ProfileFormScreen({ navigation, route }) {
 
   const showReason = (reason) => {
     if (reason === 'empty') {
-      Alert.alert('نام دسته لازم است', 'یک نام کوتاه برای دسته وارد کنید.');
+      Alert.alert(t('نام دسته لازم است'), t('یک نام کوتاه برای دسته وارد کنید.'));
       return;
     }
     if (reason === 'duplicate') {
-      Alert.alert('نام تکراری', 'دسته‌ای با همین نام از قبل وجود دارد.');
+      Alert.alert(t('نام تکراری'), t('دسته‌ای با همین نام از قبل وجود دارد.'));
       return;
     }
-    Alert.alert('ذخیره نشد', 'مشکلی پیش آمد؛ دوباره تلاش کنید.');
+    Alert.alert(t('ذخیره نشد'), t('مشکلی پیش آمد؛ دوباره تلاش کنید.'));
   };
 
   const save = () => {
@@ -65,14 +68,17 @@ export default function ProfileFormScreen({ navigation, route }) {
   const confirmDelete = () => {
     if (!existing) return;
     Alert.alert(
-      'حذف دسته',
+      t('حذف دسته'),
       memberCount > 0
-        ? `«${existing.name}» حذف شود؟ ${toFa(memberCount)} مشتری به «بدون دسته» منتقل می‌شوند.`
-        : `«${existing.name}» حذف شود؟`,
+        ? t('«{name}» حذف شود؟ {n} مشتری به «بدون دسته» منتقل می‌شوند.', {
+            name: existing.name,
+            n: toFa(memberCount),
+          })
+        : t('«{name}» حذف شود؟', { name: existing.name }),
       [
-        { text: 'انصراف', style: 'cancel' },
+        { text: t('انصراف'), style: 'cancel' },
         {
-          text: 'حذف',
+          text: t('حذف'),
           style: 'destructive',
           onPress: () => {
             clearProfileFromContacts(existing.id);
@@ -87,13 +93,13 @@ export default function ProfileFormScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title={existing ? 'ویرایش دسته' : 'دسته جدید'}
+        title={existing ? t('ویرایش دسته') : t('دسته جدید')}
         subtitle={
           existing
             ? memberCount > 0
-              ? `${toFa(memberCount)} مشتری در این دسته`
-              : 'بدون مشتری'
-            : 'مثلاً فروشگاه یا شخصی'
+              ? t('{n} مشتری در این دسته', { n: toFa(memberCount) })
+              : t('بدون مشتری')
+            : t('مثلاً فروشگاه یا شخصی')
         }
         onBack={() => navigation.goBack()}
         right={<IconButton name="checkmark" onPress={save} size={22} />}
@@ -109,42 +115,41 @@ export default function ProfileFormScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
-            <Text style={styles.label}>نام دسته</Text>
+            <Text style={styles.label}>{t('نام دسته')}</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="pricetag-outline" size={17} color={colors.muted} />
               <TextInput
                 style={styles.input}
                 value={name}
                 onChangeText={setName}
-                placeholder="مثلاً فروشگاه"
+                placeholder={t('مثلاً فروشگاه')}
                 placeholderTextColor={colors.muted}
                 maxLength={PROFILE_NAME_MAX}
                 autoFocus={!existing}
               />
             </View>
             <Text style={styles.hint}>
-              هر مشتری می‌تواند در یکی از این دسته‌ها قرار بگیرد؛ حذف دسته، مشتری‌ها را حذف
-              نمی‌کند.
+              {t('هر مشتری می‌تواند در یکی از این دسته‌ها قرار بگیرد؛ حذف دسته، مشتری‌ها را حذف نمی‌کند.')}
             </Text>
           </View>
 
           <TouchableOpacity activeOpacity={0.88} style={styles.saveBtn} onPress={save}>
             <Ionicons name="checkmark-circle-outline" size={19} color={colors.white} />
             <Text style={styles.saveText}>
-              {existing ? 'ذخیره تغییرات' : 'ساخت دسته'}
+              {existing ? t('ذخیره تغییرات') : t('ساخت دسته')}
             </Text>
           </TouchableOpacity>
 
           {existing ? (
             <TouchableOpacity activeOpacity={0.8} style={styles.deleteBtn} onPress={confirmDelete}>
               <Ionicons name="trash-outline" size={16} color={colors.red} />
-              <Text style={styles.deleteText}>حذف دسته</Text>
+              <Text style={styles.deleteText}>{t('حذف دسته')}</Text>
             </TouchableOpacity>
           ) : null}
 
           {profiles.length > 0 ? (
             <Text style={styles.existing}>
-              دسته‌های موجود: {profiles.map((p) => p.name).join('، ')}
+              {t('دسته‌های موجود: {list}', { list: profiles.map((p) => p.name).join('، ') })}
             </Text>
           ) : null}
         </ScrollView>

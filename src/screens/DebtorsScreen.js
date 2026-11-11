@@ -20,10 +20,13 @@ import { sendManualReminder } from '../utils/reminderSend';
 import { balanceOf, sortContacts, totalsOf, useContacts } from '../store/ContactsContext';
 import { useSettings } from '../store/SettingsContext';
 import { Avatar, Chip, EmptyState, ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 const ALL = '__all__';
 
 export default function DebtorsScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contacts, setSmsSentForCurrentDebt } = useContacts();
   const { settings } = useSettings();
@@ -78,7 +81,7 @@ export default function DebtorsScreen({ navigation }) {
             {item.name}
           </Text>
           <Text style={[styles.phone, rtl]} numberOfLines={1}>
-            {item.phone ? toFa(item.phone) : 'بدون شماره تلفن'}
+            {item.phone ? toFa(item.phone) : t('بدون شماره تلفن')}
           </Text>
         </View>
 
@@ -116,7 +119,7 @@ export default function DebtorsScreen({ navigation }) {
           <Text style={[styles.amount, { color: colors.red }]} numberOfLines={1}>
             {money(balance)}
           </Text>
-          <Text style={[styles.amountLabel, { color: colors.red }]}>بدهکار</Text>
+          <Text style={[styles.amountLabel, { color: colors.red }]}>{t('بدهکار')}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -125,8 +128,8 @@ export default function DebtorsScreen({ navigation }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="بدهکاران"
-        subtitle={`${toFa(debtors.length)} مشتری • جمع ${money(totals.receivable)} تومان`}
+        title={t('بدهکاران')}
+        subtitle={t('{n} مشتری • جمع {total} تومان', { n: toFa(debtors.length), total: money(totals.receivable) })}
         onBack={() => navigation.goBack()}
       />
 
@@ -136,7 +139,7 @@ export default function DebtorsScreen({ navigation }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipsContent}
         >
-          <Chip label="همه" active={letter === ALL} onPress={() => setLetter(ALL)} />
+          <Chip label={t('همه')} active={letter === ALL} onPress={() => setLetter(ALL)} />
           {letters.map((item) => (
             <Chip
               key={item}
@@ -167,11 +170,11 @@ export default function DebtorsScreen({ navigation }) {
         ListEmptyComponent={
           <EmptyState
             icon={debtors.length === 0 ? 'checkmark-circle-outline' : 'search-outline'}
-            title={debtors.length === 0 ? 'هیچ بدهکاری نیست' : 'موردی پیدا نشد'}
+            title={debtors.length === 0 ? t('هیچ بدهکاری نیست') : t('موردی پیدا نشد')}
             hint={
               debtors.length === 0
-                ? 'همه مشتریان حساب‌شان تسویه است.'
-                : 'حرف دیگری را انتخاب کنید.'
+                ? t('همه مشتریان حساب‌شان تسویه است.')
+                : t('حرف دیگری را انتخاب کنید.')
             }
           />
         }

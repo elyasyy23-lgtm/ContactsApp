@@ -17,8 +17,11 @@ import { sortContacts, useContacts } from '../store/ContactsContext';
 import { useProfiles } from '../store/ProfilesContext';
 import { Avatar, EmptyState, IconButton, ScreenHeader } from '../components/ui';
 import { exportCsv } from '../utils/exports';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 export default function ReportScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contacts } = useContacts();
   const { profiles } = useProfiles();
@@ -64,7 +67,7 @@ export default function ReportScreen({ navigation }) {
   const share = async () => {
     const result = await exportCsv({ contacts, profiles });
     if (!result.ok) {
-      Alert.alert('خروجی ناموفق', 'ساخت فایل CSV ممکن نشد. دوباره تلاش کنید.');
+      Alert.alert(t('خروجی ناموفق'), t('ساخت فایل CSV ممکن نشد. دوباره تلاش کنید.'));
     }
   };
 
@@ -83,25 +86,25 @@ export default function ReportScreen({ navigation }) {
               {item.name}
             </Text>
             <Text style={styles.phone} numberOfLines={1}>
-              {item.phone ? toFa(item.phone) : 'بدون شماره تلفن'}
+              {item.phone ? toFa(item.phone) : t('بدون شماره تلفن')}
             </Text>
           </View>
           <View style={styles.netCol}>
             <Text style={[styles.net, { color: netColor }]} numberOfLines={1}>
               {money(item.net)}
             </Text>
-            <Text style={[styles.netLabel, { color: netColor }]}>مانده</Text>
+            <Text style={[styles.netLabel, { color: netColor }]}>{t('مانده')}</Text>
           </View>
         </View>
 
         <View style={styles.cardStats}>
           <View style={styles.stat}>
-            <Text style={styles.statLabel}>کل بدهی</Text>
+            <Text style={styles.statLabel}>{t('کل بدهی')}</Text>
             <Text style={[styles.statValue, { color: colors.red }]}>{money(item.credited)}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.stat}>
-            <Text style={styles.statLabel}>کل دریافت</Text>
+            <Text style={styles.statLabel}>{t('کل دریافت')}</Text>
             <Text style={[styles.statValue, { color: colors.green }]}>
               {money(item.paid)}
             </Text>
@@ -114,8 +117,8 @@ export default function ReportScreen({ navigation }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="گزارش همه مشتریان"
-        subtitle={`${toFa(rows.length)} مشتری`}
+        title={t('گزارش همه مشتریان')}
+        subtitle={t('{n} مشتری', { n: toFa(rows.length) })}
         onBack={() => navigation.goBack()}
         right={<IconButton name="share-outline" onPress={share} />}
       />
@@ -123,14 +126,14 @@ export default function ReportScreen({ navigation }) {
       <View style={styles.totalsCard}>
         <View style={styles.totalsRow}>
           <View style={styles.totalsItem}>
-            <Text style={styles.totalsLabel}>طلب از مشتریان</Text>
+            <Text style={styles.totalsLabel}>{t('طلب از مشتریان')}</Text>
             <Text style={[styles.totalsValue, { color: colors.red }]}>
               {money(totals.receivable)}
             </Text>
           </View>
           <View style={styles.totalsDivider} />
           <View style={styles.totalsItem}>
-            <Text style={styles.totalsLabel}>بدهی به مشتریان</Text>
+            <Text style={styles.totalsLabel}>{t('بدهی به مشتریان')}</Text>
             <Text style={[styles.totalsValue, { color: colors.green }]}>
               {money(totals.payable)}
             </Text>
@@ -147,28 +150,28 @@ export default function ReportScreen({ navigation }) {
         ListEmptyComponent={
           <EmptyState
             icon="people-outline"
-            title="هنوز مشتری‌ای ثبت نشده"
-            hint="اولین مشتری را از صفحه اصلی اضافه کنید."
+            title={t('هنوز مشتری‌ای ثبت نشده')}
+            hint={t('اولین مشتری را از صفحه اصلی اضافه کنید.')}
           />
         }
         ListFooterComponent={
           rows.length > 0 ? (
             <View style={styles.footerCard}>
-              <Text style={styles.footerTitle}>جمع کل همه مشتریان</Text>
+              <Text style={styles.footerTitle}>{t('جمع کل همه مشتریان')}</Text>
               <View style={styles.footerRow}>
-                <Text style={styles.footerLabel}>کل بدهی ثبت‌شده</Text>
+                <Text style={styles.footerLabel}>{t('کل بدهی ثبت‌شده')}</Text>
                 <Text style={[styles.footerValue, { color: colors.red }]}>
                   {money(totals.credited)}
                 </Text>
               </View>
               <View style={styles.footerRow}>
-                <Text style={styles.footerLabel}>کل دریافت‌شده</Text>
+                <Text style={styles.footerLabel}>{t('کل دریافت‌شده')}</Text>
                 <Text style={[styles.footerValue, { color: colors.green }]}>
                   {money(totals.paid)}
                 </Text>
               </View>
               <View style={[styles.footerRow, styles.footerRowLast]}>
-                <Text style={styles.footerLabelBold}>مانده کل</Text>
+                <Text style={styles.footerLabelBold}>{t('مانده کل')}</Text>
                 <Text style={[styles.footerValueBold, { color: colors.primary }]}>
                   {money(totals.credited - totals.paid)}
                 </Text>

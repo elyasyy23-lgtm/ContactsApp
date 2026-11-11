@@ -12,6 +12,8 @@ import { balanceOf, totalsOf, useContacts } from '../store/ContactsContext';
 import { useSettings } from '../store/SettingsContext';
 import { usePremium } from '../store/PremiumContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 const APP_VERSION = '۱٫۱';
 
@@ -40,6 +42,7 @@ function MenuItem({ icon, label, badge, tone = 'default', onPress }) {
 }
 
 export default function AppDrawer({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contacts } = useContacts();
   const { settings } = useSettings();
@@ -81,7 +84,7 @@ export default function AppDrawer({ navigation }) {
         <View style={styles.headerText}>
           <Text style={styles.title}>eKhata</Text>
           <Text style={styles.subtitle} numberOfLines={1}>
-            {settings.shopName || 'دفتر حساب مشتریان'}
+            {settings.shopName || t('دفتر حساب مشتریان')}
           </Text>
         </View>
       </LinearGradient>
@@ -96,11 +99,11 @@ export default function AppDrawer({ navigation }) {
           <Ionicons name="people" size={20} color={colors.white} />
         </View>
         <View style={styles.debtorsText}>
-          <Text style={styles.debtorsTitle}>بدهکاران</Text>
+          <Text style={styles.debtorsTitle}>{t('بدهکاران')}</Text>
           <Text style={styles.debtorsSub} numberOfLines={1}>
             {stats.debtors > 0
               ? `${toFa(stats.debtors)} مشتری • جمع ${money(stats.receivable)} تومان`
-              : 'همه تسویه هستند'}
+              : t('همه تسویه هستند')}
           </Text>
         </View>
         {stats.debtors > 0 ? (
@@ -122,28 +125,28 @@ export default function AppDrawer({ navigation }) {
           <Text style={styles.trialText}>
             {trialActive
               ? `دوره آزمایشی — ${toFa(trialDaysLeft)} روز باقی`
-              : 'دوره آزمایشی پایان یافته'}
+              : t('دوره آزمایشی پایان یافته')}
           </Text>
           <Text style={styles.trialAction}>جزئیات</Text>
         </TouchableOpacity>
       ) : null}
 
-      <MenuItem icon="home-outline" label="صفحه اصلی" onPress={() => navigation.closeDrawer()} />
-      <MenuItem icon="settings-outline" label="تنظیمات" onPress={() => go('Settings')} />
-      <MenuItem icon="pricetags-outline" label="دسته‌های مشتری" onPress={() => go('Profiles')} />
+      <MenuItem icon="home-outline" label={t('صفحه اصلی')} onPress={() => navigation.closeDrawer()} />
+      <MenuItem icon="settings-outline" label={t('تنظیمات')} onPress={() => go('Settings')} />
+      <MenuItem icon="pricetags-outline" label={t('دسته‌های مشتری')} onPress={() => go('Profiles')} />
       <MenuItem
         icon="document-text-outline"
-        label="گزارش همه مشتریان"
+        label={t('گزارش همه مشتریان')}
         onPress={() => go('Report')}
       />
       <MenuItem
         icon="calculator-outline"
-        label="ماشین حساب مالی"
+        label={t('ماشین حساب مالی')}
         onPress={() => go('Calculator')}
       />
       <MenuItem
         icon="mail-unread-outline"
-        label="پیامک‌های بانکی"
+        label={t('پیامک‌های بانکی')}
         badge={pending.length > 0 ? pending.length : null}
         onPress={() => go('SmsImport')}
       />

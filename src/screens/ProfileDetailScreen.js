@@ -12,16 +12,19 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, faText, radius, rtl, shadows, REMINDER_THRESHOLD } from '../theme';
-import { money, toFa } from '../utils/format';
+import { digits, money, toFa } from '../utils/format';
 import { contactsOfProfile } from '../utils/profiles';
 import { letterBuckets, lettersOf } from '../utils/grouping';
 import { balanceOf, sortContacts, useContacts } from '../store/ContactsContext';
 import { useProfiles } from '../store/ProfilesContext';
 import { Avatar, Chip, EmptyState, IconButton, ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 const ALL = '__all__';
 
 export default function ProfileDetailScreen({ navigation, route }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { profileId = '' } = route.params || {};
   const { hydrated, profileById } = useProfiles();
@@ -59,7 +62,7 @@ export default function ProfileDetailScreen({ navigation, route }) {
     const balance = balanceOf(item);
     const needsReminder = balance > REMINDER_THRESHOLD;
     const amountColor = balance > 0 ? colors.red : balance < 0 ? colors.green : colors.muted;
-    const amountLabel = balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه';
+    const amountLabel = balance > 0 ? t('بدهکار') : balance < 0 ? t('بستانکار') : t('تسویه');
 
     return (
       <TouchableOpacity
@@ -73,12 +76,12 @@ export default function ProfileDetailScreen({ navigation, route }) {
             {item.name}
           </Text>
           <Text style={[styles.phone, rtl]} numberOfLines={1}>
-            {item.phone ? toFa(item.phone) : 'بدون شماره تلفن'}
+            {item.phone ? toFa(item.phone) : t('بدون شماره تلفن')}
           </Text>
         </View>
         <View style={styles.amountCol}>
           <Text style={[styles.amount, { color: amountColor }]} numberOfLines={1}>
-            {balance === 0 ? '۰' : money(balance)}
+            {balance === 0 ? digits(0) : money(balance)}
           </Text>
           <Text style={[styles.amountLabel, { color: amountColor }]}>{amountLabel}</Text>
         </View>
@@ -86,13 +89,13 @@ export default function ProfileDetailScreen({ navigation, route }) {
     );
   };
 
-  const title = profile ? profile.name : 'بدون دسته';
+  const title = profile ? profile.name : t('بدون دسته');
 
   return (
     <View style={styles.root}>
       <ScreenHeader
         title={title}
-        subtitle={`${toFa(sorted.length)} مشتری`}
+        subtitle={t('{n} مشتری', { n: toFa(sorted.length) })}
         onBack={() => navigation.goBack()}
         right={
           profileId ? (
@@ -111,7 +114,7 @@ export default function ProfileDetailScreen({ navigation, route }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipsContent}
         >
-          <Chip label="همه" active={letter === ALL} onPress={() => setLetter(ALL)} />
+          <Chip label={t('همه')} active={letter === ALL} onPress={() => setLetter(ALL)} />
           {letters.map((item) => (
             <Chip
               key={item}
@@ -142,11 +145,11 @@ export default function ProfileDetailScreen({ navigation, route }) {
         ListEmptyComponent={
           <EmptyState
             icon={sorted.length === 0 ? 'pricetag-outline' : 'search-outline'}
-            title={sorted.length === 0 ? 'این دسته مشتری ندارد' : 'موردی پیدا نشد'}
+            title={sorted.length === 0 ? t('این دسته مشتری ندارد') : t('موردی پیدا نشد')}
             hint={
               sorted.length === 0
-                ? 'با دکمه + اولین مشتری این دسته را اضافه کنید.'
-                : 'حرف دیگری را انتخاب کنید.'
+                ? t('با دکمه + اولین مشتری این دسته را اضافه کنید.')
+                : t('حرف دیگری را انتخاب کنید.')
             }
           />
         }

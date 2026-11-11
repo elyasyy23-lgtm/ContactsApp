@@ -8,8 +8,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LocalAuthentication from 'expo-local-authentication';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 export default function LockScreen({ onUnlocked }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -21,8 +24,8 @@ export default function LockScreen({ onUnlocked }) {
     setBusy(true);
     try {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'ورود به eKhata',
-        cancelLabel: 'انصراف',
+        promptMessage: t('ورود به eKhata'),
+        cancelLabel: t('انصراف'),
       });
       if (result && result.success) {
         onUnlocked();
@@ -54,9 +57,9 @@ export default function LockScreen({ onUnlocked }) {
         <View style={styles.logo}>
           <Ionicons name="lock-closed" size={30} color={colors.white} />
         </View>
-        <Text style={styles.title}>eKhata قفل است</Text>
+        <Text style={styles.title}>{t('eKhata قفل است')}</Text>
         <Text style={styles.sub}>
-          برای ورود، اثر انگشت یا رمز گوشی را وارد کنید.
+          t('برای ورود، اثر انگشت یا رمز گوشی را وارد کنید.')
         </Text>
 
         <TouchableOpacity
@@ -66,14 +69,14 @@ export default function LockScreen({ onUnlocked }) {
           disabled={busy}
         >
           <Ionicons name="finger-print-outline" size={24} color={colors.white} />
-          <Text style={styles.btnText}>{busy ? 'در حال بررسی…' : 'باز کردن'}</Text>
+          <Text style={styles.btnText}>{busy ? t('در حال بررسی…') : t('باز کردن')}</Text>
         </TouchableOpacity>
 
         {failed ? (
-          <Text style={styles.failed}>باز نشد — دوباره تلاش کنید.</Text>
+          <Text style={styles.failed}>{t('باز نشد — دوباره تلاش کنید.')}</Text>
         ) : null}
 
-        <Text style={styles.footer}>داده‌های شما فقط روی همین گوشی است.</Text>
+        <Text style={styles.footer}>{t('داده‌های شما فقط روی همین گوشی است.')}</Text>
       </LinearGradient>
     </View>
   );

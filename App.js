@@ -7,6 +7,7 @@ import { createDrawerNavigator } from '@react-navigation/drawer';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { LanguageProvider } from './src/i18n/LanguageContext';
 import { ContactsProvider } from './src/store/ContactsContext';
 import { ProfilesProvider } from './src/store/ProfilesContext';
 import { SmsInboxProvider } from './src/store/SmsInboxContext';
@@ -161,18 +162,20 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <SettingsProvider>
-          <PremiumProvider>
-            <ProfilesProvider>
-              <ContactsProvider>
-                <SmsInboxProvider>
-                  <StatusBar style="light" />
-                  <RootNavigator />
-                </SmsInboxProvider>
-              </ContactsProvider>
-            </ProfilesProvider>
-          </PremiumProvider>
-        </SettingsProvider>
+        <LanguageProvider>
+          <SettingsProvider>
+            <PremiumProvider>
+              <ProfilesProvider>
+                <ContactsProvider>
+                  <SmsInboxProvider>
+                    <StatusBar style="light" />
+                    <RootNavigator />
+                  </SmsInboxProvider>
+                </ContactsProvider>
+              </ProfilesProvider>
+            </PremiumProvider>
+          </SettingsProvider>
+        </LanguageProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -279,10 +279,9 @@ composer and the owner pressed Send.)
       files were fresh — fixed by `rm -rf node_modules/.cache` + restart.
 
 ## NOW:
-Batch 9 shipped (silent SMS). NOT yet pushed — needs commit + push for the
-Actions APK build. Real-device test required: install APK, grant SMS
-permission on first sweep, verify a reminder goes out with no messaging app
-and no Send button. Expo Go keeps the composer fallback by design.
+v11 shipped + verified on device (commit c6264cd). Working on Batch 10 (v12):
+share + language/date switch, clickable green banner modal, Home swipe
+navigation. See "Batch 10" below.
 
 ## Batch 5 (2026-11-10 v10) — AUTOMATIC reminder inside the transaction save
 GOAL (owner spec): the moment a transaction is saved and the debt goes above
@@ -306,3 +305,38 @@ crossing sends exactly one more.
       `fireAutoReminder`/`autoSendReminder` present.
 - [ ] APK build + on-device test: save a credit crossing 1,000 → SMS leaves with
       no composer; pay below → save credit again → exactly one more SMS.
+
+## Batch 10 (2026-11-11 v12) — share + language switch, banner modal, swipe filter
+GOAL (owner spec, 3 features):
+1. Share: a Share button in Settings to share the app with others; a
+   per-transaction receipt share on the customer page (Android share sheet).
+2. Language switch: Persian (Jalali dates) ⇄ English (Gregorian dates) in
+   Settings — UI text + dates/digits follow the language, layout stays RTL.
+3. Green banner: tapping «… واریز بانکی خودکار ثبت شد» opens a modal with the
+   auto-recorded deposits (customer name, amount in Toman, date/time, SMS
+   text); closing the modal clears the banner.
+4. Home swipe: swipe left/right on the customer list steps the letter filter
+   to next/previous letter and auto-scrolls the chips bar.
+- [ ] `src/i18n/index.js` — EN dictionary keyed by the Persian source strings
+      (fa stays the literal key → zero regression on the Persian UI) +
+      `translate(key, params)` with module-level lang.
+- [ ] `src/i18n/LanguageContext.js` — LanguageProvider (outermost in App.js),
+      persists `@app_language`, syncs format.js locale; `useLang()` →
+      `{ lang, setLang, t }`.
+- [ ] `format.js`: `setLocale/getLocale/digits`; locale-aware `money`,
+      `jalaliDate` (Gregorian YYYY/MM/DD in en), `clockTime`. Default 'fa'
+      so Node verify tests stay green.
+- [ ] i18n sweep: all 13 screens + AmountSheet + AppDrawer + LockScreen +
+      reminderSend alerts via `t(...)`.
+- [ ] SettingsScreen: language segmented control (فارسی/English) + Share-app
+      button (Share.share with app info + repo link).
+- [ ] CustomerDetailScreen: share icon per transaction row → receipt text
+      (name, type, amount in Toman, date/time, note, balance).
+- [ ] SmsInboxContext: recentAuto entries gain contactId/bank/body/smsAt.
+- [ ] HomeScreen: banner → modal (details + clear-on-close) + amount shown in
+      real Toman (×TOMAN_PER_UNIT); RNGH Pan gesture (activeOffsetX ±20,
+      failOffsetY ±25) steps the letter filter; chips auto-scroll.
+- [ ] app.json 1.4.0 / versionCode 11; verify.js gains: every t('…') key has
+      an EN entry; locale unit checks (en money/date).
+- [ ] npm run verify + Metro bundle 200 → commit feat(v12) → push → CI green
+      → APK artifact eKhata-v1.4.0-11.

@@ -13,17 +13,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, faText, radius, rtl, rtlCenter, shadows, REMINDER_THRESHOLD } from '../theme';
-import { money, toEn, toFa } from '../utils/format';
+import { digits, money, toEn, toFa } from '../utils/format';
 import { balanceOf, sortContacts, useContacts } from '../store/ContactsContext';
 import { lettersOf } from '../utils/grouping';
 import { useSettings } from '../store/SettingsContext';
 import { usePremium } from '../store/PremiumContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
 import { Avatar, Chip, EmptyState } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 const ALL = '__all__';
 
 export default function HomeScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contacts, deleteContact } = useContacts();
   const { settings } = useSettings();
@@ -55,10 +58,10 @@ export default function HomeScreen({ navigation }) {
   }, [sorted, letter, query]);
 
   const confirmDelete = (item) => {
-    Alert.alert('حذف مشتری', `«${item.name}» با تمام تراکنش‌هایش حذف شود؟`, [
-      { text: 'انصراف', style: 'cancel' },
+    Alert.alert(t('حذف مشتری'), `«${item.name}» با تمام تراکنش‌هایش حذف شود؟`, [
+      { text: t('انصراف'), style: 'cancel' },
       {
-        text: 'حذف',
+        text: t('حذف'),
         style: 'destructive',
         onPress: () => deleteContact(item.id),
       },
@@ -77,11 +80,11 @@ export default function HomeScreen({ navigation }) {
   const addCustomer = () => {
     if (locked) {
       Alert.alert(
-        'دوره آزمایشی به پایان رسید',
-        'برای ثبت مشتری جدید، نسخه کامل را فعال کنید.',
+        t('دوره آزمایشی به پایان رسید'),
+        t('برای ثبت مشتری جدید، نسخه کامل را فعال کنید.'),
         [
-          { text: 'بعداً', style: 'cancel' },
-          { text: 'نسخه ویژه', onPress: () => navigation.navigate('Premium') },
+          { text: t('بعداً'), style: 'cancel' },
+          { text: t('نسخه ویژه'), onPress: () => navigation.navigate('Premium') },
         ],
       );
       return;
@@ -95,7 +98,7 @@ export default function HomeScreen({ navigation }) {
     const amountColor =
       balance > 0 ? colors.red : balance < 0 ? colors.green : colors.muted;
     const amountLabel =
-      balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه';
+      balance > 0 ? t('بدهکار') : balance < 0 ? t('بستانکار') : t('تسویه');
 
     return (
       <TouchableOpacity
@@ -119,13 +122,13 @@ export default function HomeScreen({ navigation }) {
             ) : null}
           </View>
           <Text style={[styles.phone, rtl]} numberOfLines={1}>
-            {item.phone ? toFa(item.phone) : 'بدون شماره تلفن'}
+            {item.phone ? toFa(item.phone) : t('بدون شماره تلفن')}
           </Text>
         </View>
 
         <View style={styles.amountCol}>
           <Text style={[styles.amount, { color: amountColor }]} numberOfLines={1}>
-            {balance === 0 ? '۰' : money(balance)}
+            {balance === 0 ? digits(0) : money(balance)}
           </Text>
           <Text style={[styles.amountLabel, { color: amountColor }]}>{amountLabel}</Text>
         </View>
@@ -181,7 +184,7 @@ export default function HomeScreen({ navigation }) {
               style={styles.searchInput}
               value={query}
               onChangeText={setQuery}
-              placeholder="جستجوی نام یا شماره…"
+              placeholder={t('جستجوی نام یا شماره…')}
               placeholderTextColor={colors.muted}
               autoFocus
             />
@@ -199,7 +202,7 @@ export default function HomeScreen({ navigation }) {
             >
               <Ionicons name="mail-unread-outline" size={16} color={colors.amber} />
               <Text style={styles.smsBannerText}>
-                {toFa(pending.length)} واریز بانکی در انتظار تأیید
+                {t('{n} واریز بانکی در انتظار تأیید', { n: toFa(pending.length) })}
               </Text>
               <Ionicons name="chevron-back" size={16} color={colors.muted} />
             </TouchableOpacity>
@@ -210,8 +213,8 @@ export default function HomeScreen({ navigation }) {
               <Ionicons name="checkmark-circle" size={16} color={colors.green} />
               <Text style={styles.smsAutoText} numberOfLines={2}>
                 {recentAuto.length === 1
-                  ? `واریز ${money(recentAuto[0].amount)} تومانی «${recentAuto[0].name}» خودکار ثبت شد`
-                  : `${toFa(recentAuto.length)} واریز بانکی خودکار ثبت شد`}
+                  ? t('واریز {amount} تومانی «{name}» خودکار ثبت شد', { amount: money(recentAuto[0].amount), name: recentAuto[0].name })
+                  : t('{n} واریز بانکی خودکار ثبت شد', { n: toFa(recentAuto.length) })}
               </Text>
               <TouchableOpacity onPress={clearRecentAuto} hitSlop={10}>
                 <Ionicons name="close" size={15} color={colors.muted} />
@@ -230,7 +233,7 @@ export default function HomeScreen({ navigation }) {
           {letters.map((item) => (
             <Chip
               key={item}
-              label={item === ALL ? 'همه' : item}
+              label={item === ALL ? t('همه') : item}
               active={letter === item}
               onPress={() => setLetter(item)}
             />
@@ -250,17 +253,17 @@ export default function HomeScreen({ navigation }) {
         ListEmptyComponent={
           <EmptyState
             icon={contacts.length === 0 ? 'people-outline' : 'search-outline'}
-            title={contacts.length === 0 ? 'هنوز مشتری‌ای ثبت نشده' : 'موردی پیدا نشد'}
+            title={contacts.length === 0 ? t('هنوز مشتری‌ای ثبت نشده') : t('موردی پیدا نشد')}
             hint={
               contacts.length === 0
-                ? 'با دکمه + اولین مشتری را اضافه کنید.'
-                : 'عبارت جستجو یا حرف دیگری را امتحان کنید.'
+                ? t('با دکمه + اولین مشتری را اضافه کنید.')
+                : t('عبارت جستجو یا حرف دیگری را امتحان کنید.')
             }
           />
         }
         ListFooterComponent={
           filtered.length > 0 ? (
-            <Text style={styles.listHint}>برای حذف مشتری، کارت را نگه دارید.</Text>
+            <Text style={styles.listHint}>{t('برای حذف مشتری، کارت را نگه دارید.')}</Text>
           ) : null
         }
       />

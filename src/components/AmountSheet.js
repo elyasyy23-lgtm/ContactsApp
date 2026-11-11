@@ -16,6 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, rtl, shadows } from '../theme';
 import { dateTime, money, parseAmount } from '../utils/format';
 import { TRANSACTION } from '../store/ContactsContext';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 export default function AmountSheet({
   visible,
@@ -28,6 +30,7 @@ export default function AmountSheet({
   onSubmit,
   onDelete,
 }) {
+  useLang(); // re-render when the app language changes
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const isPayment = mode === TRANSACTION.PAYMENT;
@@ -46,16 +49,16 @@ export default function AmountSheet({
 
   const submit = () => {
     if (!parsed || parsed <= 0) {
-      Alert.alert('مبلغ نامعتبر', 'مبلغی بیشتر از صفر وارد کنید.');
+      Alert.alert(t('مبلغ نامعتبر'), t('مبلغی بیشتر از صفر وارد کنید.'));
       return;
     }
     onSubmit({ amount: parsed, note: note.trim() });
   };
 
   const confirmDelete = () => {
-    Alert.alert('حذف تراکنش', 'این تراکنش حذف شود؟', [
-      { text: 'انصراف', style: 'cancel' },
-      { text: 'حذف', style: 'destructive', onPress: onDelete },
+    Alert.alert(t('حذف تراکنش'), t('این تراکنش حذف شود؟'), [
+      { text: t('انصراف'), style: 'cancel' },
+      { text: t('حذف'), style: 'destructive', onPress: onDelete },
     ]);
   };
 
@@ -79,7 +82,7 @@ export default function AmountSheet({
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.sheetTitle}>
-                {editing ? 'ویرایش تراکنش' : isPayment ? 'دریافت وجه' : 'ثبت بدهی'}
+                {editing ? t('ویرایش تراکنش') : isPayment ? t('دریافت وجه') : t('ثبت بدهی')}
               </Text>
               <Text style={styles.sheetSubtitle}>
                 {stamp.date} • {stamp.time}
@@ -131,7 +134,7 @@ export default function AmountSheet({
             style={styles.noteInput}
             value={note}
             onChangeText={setNote}
-            placeholder="مثلاً پرداخت نقدی"
+            placeholder={t('مثلاً پرداخت نقدی')}
             placeholderTextColor={colors.muted}
           />
 
@@ -147,7 +150,7 @@ export default function AmountSheet({
               onPress={submit}
             >
               <Ionicons name="checkmark" size={19} color={colors.white} />
-              <Text style={styles.saveText}>ثبت</Text>
+              <Text style={styles.saveText}>{t('ثبت')}</Text>
             </TouchableOpacity>
           </View>
         </View>

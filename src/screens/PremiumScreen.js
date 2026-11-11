@@ -7,19 +7,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
-import { money, toFa } from '../utils/format';
+import { digits, money, toFa } from '../utils/format';
 import { TRIAL_DAYS } from '../utils/trial';
 import { usePremium } from '../store/PremiumContext';
 import { ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 const FEATURES = [
-  { icon: 'people-outline', title: 'مشتری نامحدود', text: 'بدون سقف مشتری؛ در دوره آزمایشی و بعد از خرید.' },
-  { icon: 'notifications-outline', title: 'یادآوری خودکار پیامک', text: 'برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، خودکار ارسال می‌شود.' },
-  { icon: 'card-outline', title: 'اطلاعات کارت در پیام', text: 'نام شما و شماره کارت داخل متن یادآوری درج می‌شود.' },
-  { icon: 'cloud-download-outline', title: 'همه امکانات آینده', text: 'یک‌بار خرید، استفاده همیشگی؛ به‌روزرسانی‌ها رایگان.' },
+  { icon: 'people-outline', title: t('مشتری نامحدود'), text: t('بدون سقف مشتری؛ در دوره آزمایشی و بعد از خرید.') },
+  { icon: 'notifications-outline', title: t('یادآوری خودکار پیامک'), text: t('برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، خودکار ارسال می‌شود.') },
+  { icon: 'card-outline', title: t('اطلاعات کارت در پیام'), text: t('نام شما و شماره کارت داخل متن یادآوری درج می‌شود.') },
+  { icon: 'cloud-download-outline', title: t('همه امکانات آینده'), text: t('یک‌بار خرید، استفاده همیشگی؛ به‌روزرسانی‌ها رایگان.') },
 ];
 
 export default function PremiumScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const {
     premium,
@@ -43,39 +46,39 @@ export default function PremiumScreen({ navigation }) {
   const handleBuy = async () => {
     const result = await buy();
     if (result.ok) {
-      Alert.alert('نسخه ویژه فعال شد', 'از این پس می‌توانید بدون محدودیت از برنامه استفاده کنید.');
+      Alert.alert(t('نسخه ویژه فعال شد'), t('از این پس می‌توانید بدون محدودیت از برنامه استفاده کنید.'));
       return;
     }
     if (result.reason === 'cancelled') return;
     Alert.alert(
-      'پرداخت در دسترس نیست',
-      'این نسخه با Expo Go اجرا می‌شود و پرداخت درون‌برنامه‌ای مایکت فقط در نسخه نصبی (APK) فعال است. ' +
-        'برای دیدن بقیه برنامه، از دکمه «فعال‌سازی آزمایشی» استفاده کنید.',
-      [{ text: 'باشه' }],
+      t('پرداخت در دسترس نیست'),
+      t('این نسخه با Expo Go اجرا می‌شود و پرداخت درون‌برنامه‌ای مایکت فقط در نسخه نصبی (APK) فعال است. ') +
+        t('برای دیدن بقیه برنامه، از دکمه «فعال‌سازی آزمایشی» استفاده کنید.'),
+      [{ text: t('باشه') }],
     );
   };
 
   const handleRestore = async () => {
     const result = await restore();
     if (result.ok) {
-      Alert.alert('بازیابی شد', 'نسخه ویژه شما فعال شد.');
+      Alert.alert(t('بازیابی شد'), t('نسخه ویژه شما فعال شد.'));
       return;
     }
     Alert.alert(
-      'خرید قبلی پیدا نشد',
-      'اگر قبلاً نسخه ویژه را خریداری کرده‌اید، ابتدا مطمئن شوید با همان حساب مایکت وارد شده‌اید.',
-      [{ text: 'باشه' }],
+      t('خرید قبلی پیدا نشد'),
+      t('اگر قبلاً نسخه ویژه را خریداری کرده‌اید، ابتدا مطمئن شوید با همان حساب مایکت وارد شده‌اید.'),
+      [{ text: t('باشه') }],
     );
   };
 
   const handleDemo = () => {
     Alert.alert(
-      'فعال‌سازی آزمایشی',
-      'نسخه ویژه فقط روی این گوشی و برای تست فعال می‌شود. در نسخه نهایی مایکت، این دکمه با پرداخت واقعی جایگزین می‌شود.',
+      t('فعال‌سازی آزمایشی'),
+      t('نسخه ویژه فقط روی این گوشی و برای تست فعال می‌شود. در نسخه نهایی مایکت، این دکمه با پرداخت واقعی جایگزین می‌شود.'),
       [
-        { text: 'انصراف', style: 'cancel' },
+        { text: t('انصراف'), style: 'cancel' },
         {
-          text: 'فعال کن',
+          text: t('فعال کن'),
           onPress: () => unlock('demo'),
         },
       ],
@@ -83,27 +86,29 @@ export default function PremiumScreen({ navigation }) {
   };
 
   const subtitle = premium
-    ? 'فعال است'
+    ? t('فعال است')
     : locked
-      ? 'دوره آزمایشی پایان یافت'
-      : `${toFa(trialDaysLeft)} روز باقی مانده`;
+      ? t('دوره آزمایشی پایان یافت')
+      : t('{n} روز باقی مانده', { n: toFa(trialDaysLeft) });
 
   const heroTitle = premium
-    ? 'نسخه ویژه فعال است'
+    ? t('نسخه ویژه فعال است')
     : locked
-      ? 'دوره آزمایشی به پایان رسید'
-      : `${toFa(trialDaysLeft)} روز استفاده رایگان`;
+      ? t('دوره آزمایشی به پایان رسید')
+      : t('{n} روز استفاده رایگان', { n: toFa(trialDaysLeft) });
 
   const heroSub = premium
-    ? 'مشتری نامحدود و همه امکانات باز است.'
+    ? t('مشتری نامحدود و همه امکانات باز است.')
     : locked
-      ? 'برای ثبت مشتری، ثبت تراکنش و ادامه کار، نسخه کامل را فعال کنید.'
-      : `همه امکانات برنامه تا ${toFa(TRIAL_DAYS)} روز باز است. پس از پایان دوره، برای ادامه باید نسخه کامل را فعال کنید.`;
+      ? t('برای ثبت مشتری، ثبت تراکنش و ادامه کار، نسخه کامل را فعال کنید.')
+      : t('همه امکانات برنامه تا {n} روز باز است. پس از پایان دوره، برای ادامه باید نسخه کامل را فعال کنید.', {
+          n: toFa(TRIAL_DAYS),
+        });
 
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="نسخه ویژه"
+        title={t('نسخه ویژه')}
         subtitle={subtitle}
         onBack={locked ? undefined : goBackOrHome}
       />
@@ -120,16 +125,16 @@ export default function PremiumScreen({ navigation }) {
         >
           <View style={styles.heroBadge}>
             <Ionicons name={locked ? 'lock-closed' : 'diamond'} size={16} color={colors.amber} />
-            <Text style={styles.heroBadgeText}>eKhata • نسخه ویژه</Text>
+            <Text style={styles.heroBadgeText}>{t('eKhata • نسخه ویژه')}</Text>
           </View>
           <Text style={styles.heroTitle}>{heroTitle}</Text>
           <Text style={styles.heroSub}>{heroSub}</Text>
           <View style={styles.heroStat}>
             <Text style={styles.heroStatValue}>
-              {premium ? '∞' : locked ? '۰' : toFa(trialDaysLeft)}
+              {premium ? '∞' : locked ? digits(0) : toFa(trialDaysLeft)}
             </Text>
             <Text style={styles.heroStatLabel}>
-              {premium ? 'مشتری نامحدود' : 'روز باقی‌مانده'}
+              {premium ? t('مشتری نامحدود') : t('روز باقی‌مانده')}
             </Text>
           </View>
         </LinearGradient>
@@ -138,7 +143,7 @@ export default function PremiumScreen({ navigation }) {
           <View style={styles.lockedCard}>
             <Ionicons name="lock-closed" size={18} color={colors.redDark} />
             <Text style={styles.lockedText}>
-              برنامه قفل شده است. تا فعال‌سازی نسخه کامل، دسترسی به مشتریان و تراکنش‌ها ممکن نیست.
+              {t('برنامه قفل شده است. تا فعال‌سازی نسخه کامل، دسترسی به مشتریان و تراکنش‌ها ممکن نیست.')}
             </Text>
           </View>
         ) : null}
@@ -164,12 +169,12 @@ export default function PremiumScreen({ navigation }) {
         {!premium ? (
           <>
             <View style={styles.priceCard}>
-              <Text style={styles.priceLabel}>پرداخت یک‌باره</Text>
+              <Text style={styles.priceLabel}>{t('پرداخت یک‌باره')}</Text>
               <Text style={styles.priceValue}>
-                {money(99000)} <Text style={styles.priceUnit}>تومان</Text>
+                {money(99000)} <Text style={styles.priceUnit}>{t('تومان')}</Text>
               </Text>
               <Text style={styles.priceHint}>
-                قیمت نهایی در صفحه پرداخت مایکت نمایش داده می‌شود.
+                {t('قیمت نهایی در صفحه پرداخت مایکت نمایش داده می‌شود.')}
               </Text>
             </View>
 
@@ -181,39 +186,39 @@ export default function PremiumScreen({ navigation }) {
             >
               <Ionicons name="bag-check-outline" size={19} color={colors.white} />
               <Text style={styles.buyText}>
-                {locked ? 'خرید نسخه کامل از مایکت' : 'خرید نسخه ویژه از مایکت'}
+                {locked ? t('خرید نسخه کامل از مایکت') : t('خرید نسخه ویژه از مایکت')}
               </Text>
             </TouchableOpacity>
 
             <View style={styles.secondaryRow}>
               <TouchableOpacity style={styles.secondaryBtn} onPress={handleRestore} disabled={busy}>
                 <Ionicons name="refresh-outline" size={15} color={colors.primary} />
-                <Text style={styles.secondaryText}>بازیابی خرید</Text>
+                <Text style={styles.secondaryText}>{t('بازیابی خرید')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryBtn} onPress={handleDemo}>
                 <Ionicons name="flask-outline" size={15} color={colors.textSoft} />
                 <Text style={[styles.secondaryText, { color: colors.textSoft }]}>
-                  فعال‌سازی آزمایشی
+                  {t('فعال‌سازی آزمایشی')}
                 </Text>
               </TouchableOpacity>
             </View>
 
             <Text style={styles.note}>
               {trialActive
-                ? `دوره آزمایشی ${toFa(TRIAL_DAYS)} روزه از اولین اجرای برنامه شروع می‌شود و با حذف و نصب دوباره بازنشانی نمی‌شود.`
-                : `دوره آزمایشی ${toFa(TRIAL_DAYS)} روزه شما به پایان رسیده است. خرید نسخه کامل، دسترسی را برای همیشه برمی‌گرداند.`}
+                ? t('دوره آزمایشی {n} روزه از اولین اجرای برنامه شروع می‌شود و با حذف و نصب دوباره بازنشانی نمی‌شود.', { n: toFa(TRIAL_DAYS) })
+                : t('دوره آزمایشی {n} روزه شما به پایان رسیده است. خرید نسخه کامل، دسترسی را برای همیشه برمی‌گرداند.', { n: toFa(TRIAL_DAYS) })}
             </Text>
 
             <Text style={styles.note}>
               {billingReady
-                ? 'پرداخت از طریق مایکت انجام می‌شود؛ در صورت بروز مشکل با پشتیبانی مایکت تماس بگیرید.'
-                : 'پرداخت درون‌برنامه‌ای مایکت پس از نصب نسخه APK فعال می‌شود. این صفحه فعلاً برای آزمایش جریان خرید است.'}
+                ? t('پرداخت از طریق مایکت انجام می‌شود؛ در صورت بروز مشکل با پشتیبانی مایکت تماس بگیرید.')
+                : t('پرداخت درون‌برنامه‌ای مایکت پس از نصب نسخه APK فعال می‌شود. این صفحه فعلاً برای آزمایش جریان خرید است.')}
             </Text>
 
             {__DEV__ ? (
               <TouchableOpacity style={styles.resetBtn} onPress={() => debugShiftTrial(8)}>
                 <Text style={styles.resetText}>
-                  {locked ? 'بازنشانی دوره آزمایشی (تست)' : 'پایان دوره آزمایشی (تست)'}
+                  {locked ? t('بازنشانی دوره آزمایشی (تست)') : t('پایان دوره آزمایشی (تست)')}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -225,9 +230,9 @@ export default function PremiumScreen({ navigation }) {
                 <Ionicons name="checkmark" size={20} color={colors.white} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.activeTitle}>نسخه ویژه فعال است</Text>
+                <Text style={styles.activeTitle}>{t('نسخه ویژه فعال است')}</Text>
                 <Text style={styles.activeText}>
-                  می‌توانید بدون محدودیت مشتری اضافه کنید.
+                  {t('می‌توانید بدون محدودیت مشتری اضافه کنید.')}
                 </Text>
               </View>
             </View>
@@ -237,11 +242,11 @@ export default function PremiumScreen({ navigation }) {
               style={styles.continueBtn}
               onPress={goBackOrHome}
             >
-              <Text style={styles.continueText}>بازگشت به برنامه</Text>
+              <Text style={styles.continueText}>{t('بازگشت به برنامه')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.resetBtn} onPress={lock}>
-              <Text style={styles.resetText}>غیرفعال‌سازی (فقط برای تست)</Text>
+              <Text style={styles.resetText}>{t('غیرفعال‌سازی (فقط برای تست)')}</Text>
             </TouchableOpacity>
           </>
         )}

@@ -18,8 +18,11 @@ import { parseBankSms } from '../utils/smsParser';
 import { balanceOf, TRANSACTION, useContacts } from '../store/ContactsContext';
 import { useSmsInbox } from '../store/SmsInboxContext';
 import { Avatar, ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 export default function SmsImportScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contacts, addTransaction } = useContacts();
   const {
@@ -68,8 +71,11 @@ export default function SmsImportScreen({ navigation }) {
     setAssignFor(null);
     if (ok) {
       Alert.alert(
-        'ثبت شد',
-        `واریز ${money(item.amount ?? item.amountToman ?? 0)} تومان برای «${contact.name}» به‌عنوان دریافت وجه ثبت شد.`,
+        t('ثبت شد'),
+        t('واریز {amount} تومان برای «{name}» به‌عنوان دریافت وجه ثبت شد.', {
+          amount: money(item.amount ?? item.amountToman ?? 0),
+          name: contact.name,
+        }),
       );
     }
   };
@@ -77,17 +83,21 @@ export default function SmsImportScreen({ navigation }) {
   const record = (contact) => {
     const value = parseAmount(amount);
     if (!value || value <= 0) {
-      Alert.alert('مبلغ نامعتبر', 'مبلغ تراکنش را وارد یا اصلاح کنید.');
+      Alert.alert(t('مبلغ نامعتبر'), t('مبلغ تراکنش را وارد یا اصلاح کنید.'));
       return;
     }
-    const label = type === TRANSACTION.PAYMENT ? 'دریافت وجه' : 'ثبت بدهی';
+    const label = type === TRANSACTION.PAYMENT ? t('دریافت وجه') : t('ثبت بدهی');
     Alert.alert(
-      'ثبت تراکنش',
-      `${label} به مبلغ ${money(value)} تومان برای «${contact.name}» ثبت شود؟`,
+      t('ثبت تراکنش'),
+      t('{label} به مبلغ {amount} تومان برای «{name}» ثبت شود؟', {
+        label,
+        amount: money(value),
+        name: contact.name,
+      }),
       [
-        { text: 'انصراف', style: 'cancel' },
+        { text: t('انصراف'), style: 'cancel' },
         {
-          text: 'ثبت',
+          text: t('ثبت'),
           onPress: () => {
             addTransaction(contact.id, {
               type,
@@ -104,8 +114,8 @@ export default function SmsImportScreen({ navigation }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="ثبت از پیامک"
-        subtitle="پیامک بانکی را بچسبانید"
+        title={t('ثبت از پیامک')}
+        subtitle={t('پیامک بانکی را بچسبانید')}
         onBack={() => navigation.goBack()}
       />
 
@@ -124,7 +134,7 @@ export default function SmsImportScreen({ navigation }) {
                 <View style={{ flexDirection: 'row-reverse', alignItems: 'center' }}>
                   <Ionicons name="mail-unread-outline" size={16} color={colors.amber} />
                   <Text style={styles.pendingTitle}>
-                    {toFa(pending.length)} واریز در انتظار تأیید
+                    {t('{n} واریز در انتظار تأیید', { n: toFa(pending.length) })}
                   </Text>
                 </View>
                 {smsAvailable ? (
@@ -136,7 +146,7 @@ export default function SmsImportScreen({ navigation }) {
                   >
                     <Ionicons name="refresh" size={15} color={colors.primary} />
                     <Text style={styles.refreshText}>
-                      {smsBusy ? 'بررسی…' : 'بررسی دوباره'}
+                      {smsBusy ? t('بررسی…') : t('بررسی دوباره')}
                     </Text>
                   </TouchableOpacity>
                 ) : null}
@@ -146,11 +156,11 @@ export default function SmsImportScreen({ navigation }) {
                 <View key={item.key} style={styles.pendingCard}>
                   <View style={styles.pendingTop}>
                     <Text style={styles.pendingAmount}>
-                      {money(item.amount ?? item.amountToman ?? 0)} تومان
+                      {money(item.amount ?? item.amountToman ?? 0)} {t('تومان')}
                     </Text>
                     <Text style={styles.pendingMeta}>
-                      {item.bank ? `بانک ${item.bank}` : 'پیامک بانکی'}
-                      {item.card ? ` • کارت •••• ${toFa(item.card)}` : ''}
+                      {item.bank ? t('بانک {bank}', { bank: item.bank }) : 'پیامک بانکی'}
+                      {item.card ? t(' • کارت •••• {last4}', { last4: toFa(item.card) }) : ''}
                     </Text>
                   </View>
 
@@ -168,7 +178,7 @@ export default function SmsImportScreen({ navigation }) {
                     >
                       <Ionicons name="person-add-outline" size={15} color={colors.white} />
                       <Text style={styles.pendingBtnText}>
-                        {assignFor === item.key ? 'بستن فهرست' : 'انتخاب مشتری'}
+                        {assignFor === item.key ? t('بستن فهرست') : t('انتخاب مشتری')}
                       </Text>
                     </TouchableOpacity>
 
@@ -178,7 +188,7 @@ export default function SmsImportScreen({ navigation }) {
                       onPress={() => dismissPending(item.id)}
                     >
                       <Ionicons name="close" size={16} color={colors.muted} />
-                      <Text style={styles.pendingDismissText}>نادیده گرفتن</Text>
+                      <Text style={styles.pendingDismissText}>{t('نادیده گرفتن')}</Text>
                     </TouchableOpacity>
                   </View>
 
@@ -197,7 +207,9 @@ export default function SmsImportScreen({ navigation }) {
                               {contact.name}
                             </Text>
                             <Text style={styles.contactMeta} numberOfLines={1}>
-                              بدهی: {money(Math.max(balanceOf(contact), 0))} تومان
+                              {t('بدهی: {amount} تومان', {
+                                amount: money(Math.max(balanceOf(contact), 0)),
+                              })}
                             </Text>
                           </View>
                           <Ionicons name="chevron-back" size={18} color={colors.muted} />
@@ -216,24 +228,24 @@ export default function SmsImportScreen({ navigation }) {
             </View>
             <View style={{ flex: 1, marginRight: 10 }}>
               <Text style={styles.infoTitle}>
-                {smsAvailable ? 'ثبت خودکار فعال است' : 'چرا خودکار خوانده نمی‌شود؟'}
+                {smsAvailable ? t('ثبت خودکار فعال است') : t('چرا خودکار خوانده نمی‌شود؟')}
               </Text>
               <Text style={styles.infoText}>
                 {smsAvailable
                   ? smsEnabled
-                    ? 'پیامک‌های بانکی خودکار خوانده می‌شوند. واریزهایی که مشتری‌شان با اطمینان مشخص شود، مستقیم ثبت می‌شوند و بقیه همین‌جا می‌مانند تا تأیید کنید. برای پیامک تکراری یا دستی هم می‌توانید متن را پایین بچسبانید.'
-                    : 'دسترسی پیامک داده شده، اما ثبت خودکار خاموش است. از تنظیمات آن را روشن کنید تا واریزها بدون کار اضافه ثبت شوند.'
-                  : 'در Expo Go دسترسی به صندوق پیامک وجود ندارد (نیازمند ماژول نیتیو و مجوز READ_SMS است). راه‌حل فعلی: پیامک بانک را کپی و همین‌جا بچسبانید؛ مبلغ (به تومان) و نوع تراکنش خودکار تشخیص داده می‌شود.'}
+                    ? t('پیامک‌های بانکی خودکار خوانده می‌شوند. واریزهایی که مشتری‌شان با اطمینان مشخص شود، مستقیم ثبت می‌شوند و بقیه همین‌جا می‌مانند تا تأیید کنید. برای پیامک تکراری یا دستی هم می‌توانید متن را پایین بچسبانید.')
+                    : t('دسترسی پیامک داده شده، اما ثبت خودکار خاموش است. از تنظیمات آن را روشن کنید تا واریزها بدون کار اضافه ثبت شوند.')
+                  : t('در Expo Go دسترسی به صندوق پیامک وجود ندارد (نیازمند ماژول نیتیو و مجوز READ_SMS است). راه‌حل فعلی: پیامک بانک را کپی و همین‌جا بچسبانید؛ مبلغ (به تومان) و نوع تراکنش خودکار تشخیص داده می‌شود.')}
               </Text>
             </View>
           </View>
 
-          <Text style={styles.label}>متن پیامک</Text>
+          <Text style={styles.label}>{t('متن پیامک')}</Text>
           <TextInput
             style={styles.smsInput}
             value={text}
             onChangeText={setText}
-            placeholder="مثلاً: مبلغ 12,500,000 ریال واریز به حساب شما…"
+            placeholder={t('مثلاً: مبلغ 12,500,000 ریال واریز به حساب شما…')}
             placeholderTextColor={colors.muted}
             multiline
             textAlignVertical="top"
@@ -241,7 +253,7 @@ export default function SmsImportScreen({ navigation }) {
 
           <TouchableOpacity activeOpacity={0.88} style={styles.analyzeBtn} onPress={analyze}>
             <Ionicons name="scan-outline" size={18} color={colors.white} />
-            <Text style={styles.analyzeText}>تحلیل پیامک</Text>
+            <Text style={styles.analyzeText}>{t('تحلیل پیامک')}</Text>
           </TouchableOpacity>
 
           {parsed && !parsed.ok ? (
@@ -249,8 +261,8 @@ export default function SmsImportScreen({ navigation }) {
               <Ionicons name="alert-circle-outline" size={17} color={colors.amber} />
               <Text style={styles.warnText}>
                 {parsed.reason === 'empty'
-                  ? 'متنی وارد نشده است.'
-                  : 'مبلغی در متن پیدا نشد. می‌توانید مبلغ را دستی وارد کنید.'}
+                  ? t('متنی وارد نشده است.')
+                  : t('مبلغی در متن پیدا نشد. می‌توانید مبلغ را دستی وارد کنید.')}
               </Text>
             </View>
           ) : null}
@@ -258,24 +270,24 @@ export default function SmsImportScreen({ navigation }) {
           {parsed && parsed.ok ? (
             <View style={styles.resultCard}>
               <View style={styles.resultHeader}>
-                <Text style={styles.resultTitle}>نتیجه تشخیص</Text>
+                <Text style={styles.resultTitle}>{t('نتیجه تشخیص')}</Text>
                 <View style={styles.bankPill}>
                   <Text style={styles.bankText}>
-                    {parsed.bank ? `بانک ${parsed.bank}` : 'پیامک بانکی'}
+                    {parsed.bank ? t('بانک {bank}', { bank: parsed.bank }) : 'پیامک بانکی'}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.resultRow}>
-                <Text style={styles.resultLabel}>مبلغ</Text>
+                <Text style={styles.resultLabel}>{t('مبلغ')}</Text>
                 <Text style={styles.resultValue}>
-                  {money(parseAmount(amount) || parsed.amount)} تومان
+                  {money(parseAmount(amount) || parsed.amount)} {t('تومان')}
                 </Text>
               </View>
 
               {parsed.card ? (
                 <View style={styles.resultRow}>
-                  <Text style={styles.resultLabel}>کارت</Text>
+                  <Text style={styles.resultLabel}>{t('کارت')}</Text>
                   <Text style={styles.resultValue}>•••• {toFa(parsed.card)}</Text>
                 </View>
               ) : null}
@@ -300,7 +312,7 @@ export default function SmsImportScreen({ navigation }) {
                       { color: type === TRANSACTION.PAYMENT ? colors.white : colors.green },
                     ]}
                   >
-                    دریافت وجه
+                    {t('دریافت وجه')}
                   </Text>
                 </TouchableOpacity>
 
@@ -323,12 +335,12 @@ export default function SmsImportScreen({ navigation }) {
                       { color: type === TRANSACTION.CREDIT ? colors.white : colors.red },
                     ]}
                   >
-                    ثبت بدهی
+                    {t('ثبت بدهی')}
                   </Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>اصلاح مبلغ (اختیاری)</Text>
+              <Text style={styles.label}>{t('اصلاح مبلغ (اختیاری)')}</Text>
               <TextInput
                 style={styles.amountInput}
                 value={amount}
@@ -356,7 +368,7 @@ export default function SmsImportScreen({ navigation }) {
                       {contact.name}
                     </Text>
                     <Text style={styles.contactMeta} numberOfLines={1}>
-                      {contact.phone ? toFa(contact.phone) : 'بدون شماره'}
+                      {contact.phone ? toFa(contact.phone) : t('بدون شماره')}
                     </Text>
                   </View>
                   <Ionicons name="chevron-back" size={18} color={colors.muted} />

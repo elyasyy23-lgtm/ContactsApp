@@ -18,6 +18,8 @@ import { useContact, useContacts } from '../store/ContactsContext';
 import { usePremium } from '../store/PremiumContext';
 import { useProfiles } from '../store/ProfilesContext';
 import { Chip, IconButton, ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 function Field({ label, icon, hint, ...props }) {
   return (
@@ -37,6 +39,7 @@ function Field({ label, icon, hint, ...props }) {
 }
 
 export default function CustomerFormScreen({ navigation, route }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { contactId, profileId: presetProfileId } = route.params || {};
   const existing = useContact(contactId);
@@ -60,7 +63,7 @@ export default function CustomerFormScreen({ navigation, route }) {
 
   const save = () => {
     if (!name.trim()) {
-      Alert.alert('نام لازم است', 'نام مشتری را وارد کنید.');
+      Alert.alert(t('نام لازم است'), t('نام مشتری را وارد کنید.'));
       return;
     }
     const payload = {
@@ -80,9 +83,9 @@ export default function CustomerFormScreen({ navigation, route }) {
     }
 
     if (locked) {
-      Alert.alert('دوره آزمایشی به پایان رسید', 'برای ثبت مشتری جدید، نسخه کامل را فعال کنید.', [
-        { text: 'بعداً', style: 'cancel' },
-        { text: 'نسخه ویژه', onPress: () => navigation.navigate('Premium') },
+      Alert.alert(t('دوره آزمایشی به پایان رسید'), t('برای ثبت مشتری جدید، نسخه کامل را فعال کنید.'), [
+        { text: t('بعداً'), style: 'cancel' },
+        { text: t('نسخه ویژه'), onPress: () => navigation.navigate('Premium') },
       ]);
       return;
     }
@@ -93,10 +96,10 @@ export default function CustomerFormScreen({ navigation, route }) {
 
   const confirmDelete = () => {
     if (!existing) return;
-    Alert.alert('حذف مشتری', `«${existing.name}» با تمام تراکنش‌ها حذف شود؟`, [
-      { text: 'انصراف', style: 'cancel' },
+    Alert.alert(t('حذف مشتری'), `«${existing.name}» با تمام تراکنش‌ها حذف شود؟`, [
+      { text: t('انصراف'), style: 'cancel' },
       {
-        text: 'حذف',
+        text: t('حذف'),
         style: 'destructive',
         onPress: () => {
           deleteContact(existing.id);
@@ -109,8 +112,8 @@ export default function CustomerFormScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title={existing ? 'ویرایش مشتری' : 'مشتری جدید'}
-        subtitle={existing ? 'اطلاعات را به‌روز کنید' : 'اطلاعات مشتری را وارد کنید'}
+        title={existing ? t('ویرایش مشتری') : t('مشتری جدید')}
+        subtitle={existing ? t('اطلاعات را به‌روز کنید') : t('اطلاعات مشتری را وارد کنید')}
         onBack={() => navigation.goBack()}
         right={<IconButton name="checkmark" onPress={save} size={22} />}
       />
@@ -126,24 +129,24 @@ export default function CustomerFormScreen({ navigation, route }) {
         >
           <View style={styles.card}>
             <Field
-              label="نام و نام خانوادگی"
+              label={t('نام و نام خانوادگی')}
               icon="person-outline"
               value={name}
               onChangeText={setName}
-              placeholder="مثلاً علی رضایی"
+              placeholder={t('مثلاً علی رضایی')}
               autoFocus={!existing}
             />
             <Field
-              label="شماره موبایل"
+              label={t('شماره موبایل')}
               icon="call-outline"
               value={phone}
               onChangeText={setPhone}
               placeholder="09123456789"
               keyboardType="phone-pad"
-              hint="شماره را با ارقام انگلیسی وارد کنید؛ برای ارسال پیامک یادآوری لازم است."
+              hint={t('شماره را با ارقام انگلیسی وارد کنید؛ برای ارسال پیامک یادآوری لازم است.')}
             />
             <Field
-              label="ایمیل"
+              label={t('ایمیل')}
               icon="mail-outline"
               value={email}
               onChangeText={setEmail}
@@ -152,26 +155,26 @@ export default function CustomerFormScreen({ navigation, route }) {
               autoCapitalize="none"
             />
             <Field
-              label="شماره کارت مشتری (اختیاری)"
+              label={t('شماره کارت مشتری (اختیاری)')}
               icon="card-outline"
               value={cardNumber}
               onChangeText={setCardNumber}
               placeholder="6037 9974 1234 5678"
               keyboardType="number-pad"
               maxLength={19}
-              hint="برای ثبت خودکار واریزها از پیامک بانکی؛ فقط ۴ رقم آخر هم کافی است."
+              hint={t('برای ثبت خودکار واریزها از پیامک بانکی؛ فقط ۴ رقم آخر هم کافی است.')}
             />
             <Field
-              label="آدرس"
+              label={t('آدرس')}
               icon="location-outline"
               value={address}
               onChangeText={setAddress}
-              placeholder="آدرس مشتری"
+              placeholder={t('آدرس مشتری')}
               multiline
             />
 
             <View style={styles.profileField}>
-              <Text style={styles.label}>دسته مشتری</Text>
+              <Text style={styles.label}>{t('دسته مشتری')}</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -179,7 +182,7 @@ export default function CustomerFormScreen({ navigation, route }) {
                 keyboardShouldPersistTaps="handled"
               >
                 <Chip
-                  label="بدون دسته"
+                  label={t('بدون دسته')}
                   active={!profileId}
                   onPress={() => setProfileId('')}
                 />
@@ -202,9 +205,9 @@ export default function CustomerFormScreen({ navigation, route }) {
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.switchTitle}>ارسال پیامک یادآوری</Text>
+                <Text style={styles.switchTitle}>{t('ارسال پیامک یادآوری')}</Text>
                 <Text style={styles.switchSub}>
-                  دکمه ارسال یادآوری برای این مشتری کار کند (ارسال بی‌صدا با خودِ برنامه).
+                  {t('دکمه ارسال یادآوری برای این مشتری کار کند (ارسال بی‌صدا با خودِ برنامه).')}
                 </Text>
               </View>
               <Switch
@@ -219,7 +222,7 @@ export default function CustomerFormScreen({ navigation, route }) {
           <TouchableOpacity activeOpacity={0.88} style={styles.saveBtn} onPress={save}>
             <Ionicons name="checkmark-circle-outline" size={19} color={colors.white} />
             <Text style={styles.saveText}>
-              {existing ? 'ذخیره تغییرات' : 'افزودن مشتری'}
+              {existing ? t('ذخیره تغییرات') : t('افزودن مشتری')}
             </Text>
           </TouchableOpacity>
 
@@ -230,7 +233,7 @@ export default function CustomerFormScreen({ navigation, route }) {
               onPress={confirmDelete}
             >
               <Ionicons name="trash-outline" size={16} color={colors.red} />
-              <Text style={styles.deleteText}>حذف مشتری</Text>
+              <Text style={styles.deleteText}>{t('حذف مشتری')}</Text>
             </TouchableOpacity>
           ) : null}
         </ScrollView>

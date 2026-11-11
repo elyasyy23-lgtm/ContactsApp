@@ -11,6 +11,8 @@ import { profileCounts } from '../utils/profiles';
 import { useContacts } from '../store/ContactsContext';
 import { useProfiles } from '../store/ProfilesContext';
 import { EmptyState, IconButton, ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 function ProfileRow({ icon, name, count, muted, onPress, onLongPress }) {
   return (
@@ -29,7 +31,7 @@ function ProfileRow({ icon, name, count, muted, onPress, onLongPress }) {
           {name}
         </Text>
         <Text style={styles.rowCount}>
-          {count > 0 ? `${toFa(count)} مشتری` : 'بدون مشتری'}
+          {count > 0 ? `${toFa(count)} مشتری` : t('بدون مشتری')}
         </Text>
       </View>
       <Ionicons name="chevron-back" size={18} color={colors.muted} />
@@ -38,6 +40,7 @@ function ProfileRow({ icon, name, count, muted, onPress, onLongPress }) {
 }
 
 export default function ProfilesScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { profiles } = useProfiles();
   const { contacts } = useContacts();
@@ -48,8 +51,8 @@ export default function ProfilesScreen({ navigation }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="دسته‌بندی مشتریان"
-        subtitle={`${toFa(profiles.length)} دسته`}
+        title={t('دسته‌بندی مشتریان')}
+        subtitle={t('{n} دسته', { n: toFa(profiles.length) })}
         onBack={() => navigation.goBack()}
         right={<IconButton name="add" onPress={() => navigation.navigate('ProfileForm', {})} />}
       />
@@ -59,13 +62,13 @@ export default function ProfilesScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.hint}>
-          هر مشتری را در یک دسته بگذارید تا حساب‌های فروشگاه و شخصی جدا بمانند.
+          t('هر مشتری را در یک دسته بگذارید تا حساب‌های فروشگاه و شخصی جدا بمانند.')
         </Text>
 
         {unassigned > 0 ? (
           <ProfileRow
             icon="albums-outline"
-            name="بدون دسته"
+            name={t('بدون دسته')}
             count={unassigned}
             muted
             onPress={() => navigation.navigate('ProfileDetail', { profileId: '' })}
@@ -88,8 +91,8 @@ export default function ProfilesScreen({ navigation }) {
         {profiles.length === 0 ? (
           <EmptyState
             icon="pricetags-outline"
-            title="هنوز دسته‌ای ندارید"
-            hint="با دکمه + یک دسته بسازید؛ مثلاً «فروشگاه» یا «شخصی»."
+            title={t('هنوز دسته‌ای ندارید')}
+            hint={t('با دکمه + یک دسته بسازید؛ مثلاً «فروشگاه» یا «شخصی».')}
           />
         ) : null}
 
@@ -99,10 +102,10 @@ export default function ProfilesScreen({ navigation }) {
           onPress={() => navigation.navigate('ProfileForm', {})}
         >
           <Ionicons name="add-circle-outline" size={19} color={colors.primary} />
-          <Text style={styles.addText}>دسته جدید</Text>
+          <Text style={styles.addText}>{t('دسته جدید')}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.listHint}>برای ویرایش یا حذف دسته، نام آن را نگه دارید.</Text>
+        <Text style={styles.listHint}>t('برای ویرایش یا حذف دسته، نام آن را نگه دارید.')</Text>
       </ScrollView>
     </View>
   );

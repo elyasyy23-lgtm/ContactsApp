@@ -152,8 +152,10 @@ src/screens/PremiumScreen.js       trial paywall (days left / trial ended), buy,
   `addTransaction` / `updateTransaction` / `deleteTransaction` right after the new
   contact is committed — so the moment a credit pushes the debt above
   `REMINDER_THRESHOLD` the silent SMS goes out with no button press. There is NO
-  screen sweep and NO AppState effect; never reintroduce a second auto-send path
-  (double-fire race). `scripts/verify.js` statically asserts all three call sites.
+  screen sweep and NO AppState effect. v11 added exactly ONE recovery entry point
+  (`attemptAutoReminder`, called when a customer screen shows a debt that crossed
+  while sending was impossible) — it is idempotent via the latch + inFlight Set;
+  never add another. `scripts/verify.js` statically asserts all three call sites.
 - The store keeps the list in `contactsRef` (synchronous) alongside state, so a
   mutation knows the NEW balance in the same tick — that is what makes the instant
   trigger possible. Any new mutation must go through `commit(next)`.
@@ -170,9 +172,31 @@ src/screens/PremiumScreen.js       trial paywall (days left / trial ended), buy,
   switch was turned on after the debt already crossed. They keep the composer
   fallback; the automatic path never uses it.
 - Transport ladder (`src/utils/smsSend.js`): native `sendSms` (SmsManager,
-  multipart — Persian is UCS-2) → composer (`sms:` URL) fallback. SEND_SMS is
-  requested once from JS via `PermissionsAndroid.request` (the first automatic
-  send shows the Android dialog; after that it is silent forever).
+  multipart — Persian is UCS-2) → composer (`sms:` URL) fallback.
+
+### Reminder UI + build identity — v11 2026-11-10 (owner bug report)
+- **Owner complaint:** the «ارسال یادآوری» button stayed visible and nothing was
+  sent. Root cause was two-fold: (a) the installed APK was the **v9** build — the
+  automatic trigger only exists from v10; (b) both builds shipped as version
+  `1.2.0` with the same APK/artifact name, so v9 and v10 were indistinguishable.
+- **Auto trigger is now crossing-only:** `fireAutoReminder(contact, raised)` skips
+  the send when the mutation lowered the debt (a payment must never send a
+  reminder). `raised = balanceOf(updated) > balanceOf(target)` at all 3 call sites.
+- `src/utils/reminderUi.js` (pure, Node-testable) decides which control the screen
+  may show: `BELOW / OFF / SENT / ARMED / PERMISSION / SETTINGS / PHONE /
+  UNAVAILABLE`. **ARMED and SENT mean the automatic sender owns the job → NO
+  manual button** (that was the bug). Other modes show ONE labelled fallback
+  button tied to the actual blocker (`اجازه ارسال` / `تنظیمات` / `شماره` /
+  `ارسال دستی` for Expo Go). «پیامک تسویه» below the threshold stays manual.
+- The automatic path never opens the Android permission dialog (`hasSendPermission`
+  → no-prompt check); the fallback «اجازه ارسال» button requests it and then calls
+  `attemptAutoReminder` so the pending debt is sent immediately.
+- A customer screen re-checks SEND_SMS on mount (`hasSendPermission`).
+- **Version identity:** `app.json` = `1.3.0` / `android.versionCode: 10`; Settings'
+  footer shows `eKhata — نسخه {BUILD_STAMP}` from `src/buildInfo.js` (imports
+  app.json, verify.js asserts no drift). The CI APK is copied to
+  `eKhata-v<version>-<versionCode>.apk` and the artifact is named
+  `eKhata-v<version>-<versionCode>` (workflow step `Read app version`).
 - `reminderAction()` in `src/utils/reminderGate.js` is pure (`send`/`reset`/`none`) —
   never import React-land into reminderGate; verify.js requires it in Node.
 - Persian-digit-only phone numbers cannot be dialed silently (everything is

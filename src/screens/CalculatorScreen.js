@@ -7,7 +7,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, shadows } from '../theme';
 import { evaluate, formatCalcResult, formatExpression } from '../utils/calc';
+import { digits, getLocale, toEn } from '../utils/format';
 import { ScreenHeader } from '../components/ui';
+import { t } from '../i18n';
+import { useLang } from '../i18n/LanguageContext';
 
 const KEYS = [
   [
@@ -45,6 +48,7 @@ const KEYS = [
 const OP_ASCII = { '÷': '/', '×': '*', '−': '-' };
 
 export default function CalculatorScreen({ navigation }) {
+  useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const [expr, setExpr] = useState('');
   const [result, setResult] = useState(null);
@@ -125,12 +129,12 @@ export default function CalculatorScreen({ navigation }) {
     }
   };
 
-  const preview = expr ? formatExpression(expr) : '';
+  const preview = expr ? formatExpression(expr, getLocale()) : '';
   const shownResult = error
-    ? 'خطا'
+    ? t('خطا')
     : result === null
       ? ''
-      : formatCalcResult(result) ?? 'خطا';
+      : formatCalcResult(result, getLocale()) ?? t('خطا');
 
   const keyBg = (tone) =>
     tone === 'accent'
@@ -146,14 +150,14 @@ export default function CalculatorScreen({ navigation }) {
   return (
     <View style={styles.root}>
       <ScreenHeader
-        title="ماشین حساب مالی"
-        subtitle="محاسبه سریع مبالغ و درصدها"
+        title={t('ماشین حساب مالی')}
+        subtitle={t('محاسبه سریع مبالغ و درصدها')}
         onBack={() => navigation.goBack()}
       />
 
       <View style={styles.displayCard}>
         <Text style={styles.expression} numberOfLines={2}>
-          {preview || '۰'}
+          {preview || digits(0)}
         </Text>
         <Text
           style={[styles.result, error && { color: colors.red }]}
@@ -179,7 +183,9 @@ export default function CalculatorScreen({ navigation }) {
                     key.kind === 'eq' && styles.keyEq,
                   ]}
                 >
-                  <Text style={[styles.keyText, { color: tone.color }]}>{key.label}</Text>
+                  <Text style={[styles.keyText, { color: tone.color }]}>
+                    {getLocale() === 'en' ? toEn(key.label) : key.label}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
