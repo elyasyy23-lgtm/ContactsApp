@@ -84,6 +84,10 @@ export default function HomeScreen({ navigation }) {
   const swipe = usePanGesture(
     useMemo(
       () => ({
+        // The callbacks below touch React state and a scroll ref, not shared
+        // values — without runOnJS the v3 detector sends them to the Reanimated
+        // UI runtime and throws "Passed handlers that are not worklets".
+        runOnJS: true,
         activeOffsetX: [-24, 24],
         failOffsetY: [-18, 18],
         onFinalize: (event) => {

@@ -1,3 +1,16 @@
+## RELEASE RULE (owner, 2026-11-11 — applies to EVERY change)
+
+**Expo Go test gate comes BEFORE any push or APK build.** The order is fixed:
+
+1. code change → `npm run verify` → start Metro (`npx expo start --tunnel`) →
+   give the owner the `exp://` URL/QR;
+2. **WAIT** for the owner's explicit confirmation that it works in Expo Go;
+3. only THEN commit-push to `origin/main` and let the CI "Build APK" run.
+
+Local commits are fine at any time; `git push` and CI builds are the gated step.
+Native-only features (SMS inbox, silent SMS send) cannot be tested in Expo Go —
+say so and test those on the APK after the JS parts are confirmed.
+
 This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
 
 ## Current app (2026-11-10 — Persian UI, Toman, auto-SMS, Premium, drawer + backup)
@@ -415,3 +428,40 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   Local history was rebased onto the remote `main`; conflicts in `build.yml` resolved
   by keeping the remote (Node 22 / JDK 21 / `assembleRelease`) version.
   → GitHub Actions "Build APK" run is the shipping path (EAS upload is geo-blocked).
+
+## v12 — bilingual (fa/en) + sharing + swipe (2026-11-11, app 1.4.0 / code 11)
+
+- **i18n**: `src/i18n/dict.js` maps the EXACT Persian source string → English.
+  `t('متن فارسی')` is the only call form (Persian is the key, so the fa UI can
+  never regress and a missing en key falls back to Persian, never blank).
+  `src/i18n/index.js` holds module-level `lang` (`t`, `setLang`, `getLang`,
+  `LANGUAGES`); `src/i18n/LanguageContext.js` = `LanguageProvider` + `useLang()`,
+  persists `@app_language`, blocks render until hydrated (no fa→en flash) and calls
+  `setLocale` from `src/utils/format.js`. Every screen/component that prints text
+  must call `useLang()` so it re-renders on switch.
+- **Locale-aware output**: `format.js` → `setLocale/getLocale/digits/money/jalaliDate/
+  clockTime/dateTime`. fa = Jalali + Persian digits; en = Gregorian + Latin digits.
+  Layout stays RTL in both (owner decision). Backup FILE names stay Gregorian/Latin
+  (`backupFileName`) — filesystem-safe, intentional. Customer-facing SMS text stays
+  Persian always (`smsParser`/`reminderGate` untouched).
+- **Share**: `src/utils/share.js` (`APP_LINK`, `buildAppShareText`, `buildReceipt`,
+  `canShare`). Settings → «اشتراک‌گذاری برنامه»; CustomerDetail → per-transaction
+  share icon (`transactionShare`/`transactionEnd` styles). Receipts show Toman
+  (`amount * TOMAN_PER_UNIT`), never ledger units.
+- **Green deposit banner**: `SmsInboxContext.recentAuto` entries now carry
+  `contactId, bank, card, body, smsAt`. HomeScreen banner is a TouchableOpacity →
+  Modal (customer, Toman amount, date/time, bank, raw SMS). Closing the modal calls
+  `clearRecentAuto()` (acknowledge). Tapping a row opens that customer.
+- **Swipe alphabet**: HomeScreen `usePanGesture` (RNGH **v3**, `Gesture.Pan()` is
+  deprecated in 3.3.0) + `GestureDetector touchAction="pan-y"`; `activeOffsetX
+  [-24,24]` / `failOffsetY [-18,18]` keep the vertical list scroll intact. Swipe
+  LEFT = next letter, RIGHT = previous; chip bar auto-scrolls via measured
+  `onLayout` x offsets (`chipsRef`).
+  **`runOnJS: true` is mandatory in the pan config** — plain (non-worklet) callbacks
+  otherwise crash Expo Go with `[Reanimated] Passed handlers that are not worklets.
+  Handlers "onFinalize" are not worklets.` Bundle/verify pass green either way, so
+  this only shows on a device.
+- **Verify**: `npm run verify` = 45/45 files (parse + unbound-identifier audit +
+  unit checks). It now also asserts the fa/en digit+calendar switch
+  (`jalaliDate` fa `۱۴۰۵/۰۸/۱۱` vs en `2026/11/02`). Bundle gate:
+  `npx expo export --platform android --no-bytecode` (plain Hermes fails on Termux).
