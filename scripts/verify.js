@@ -62,7 +62,7 @@ const JS_GLOBALS = new Set([
   'clearInterval', 'fetch', 'Promise', 'Object', 'Array', 'String', 'Number',
   'Boolean', 'Math', 'Date', 'JSON', 'Error', 'Map', 'Set', 'Symbol', 'parseInt',
   'parseFloat', 'isNaN', 'encodeURIComponent', 'decodeURIComponent', 'URL',
-  'Uint8Array', 'TextEncoder', 'TextDecoder', 'RegExp', 'Intl',
+  'Uint8Array', 'TextEncoder', 'TextDecoder', 'RegExp', 'Intl', 'AbortController',
 ]);
 for (const file of sources) {
   const ast = babel.parseSync(fs.readFileSync(file, 'utf8'), {
@@ -114,6 +114,7 @@ const calc = require(path.join(srcDir, 'utils/calc.js'));
 const backup = require(path.join(srcDir, 'utils/backup.js'));
 const reminderUi = require(path.join(srcDir, 'utils/reminderUi.js'));
 const buildInfo = require(path.join(srcDir, 'buildInfo.js'));
+const updateCheck = require(path.join(srcDir, 'utils/updateCheck.js'));
 
 try {
   assert.strictEqual(fmt.group(1234567), '1,234,567', 'group() stays Latin');
@@ -312,6 +313,26 @@ try {
   );
   assert.strictEqual(taMarbuta.match && taMarbuta.match.id, '5', 'ة/ه spelling still matches');
 
+  // ── manual sender exclusion (owner-configurable ignore list) ────────────
+  assert.strictEqual(sms.isExcludedSender('09123456789', ['09123456789']), true, 'exact number excluded');
+  assert.strictEqual(sms.isExcludedSender('+989123456789', ['09123456789']), true, 'country code ignored');
+  assert.strictEqual(sms.isExcludedSender('989123456789', ['0912 345 6789']), true, 'spaces ignored');
+  assert.strictEqual(sms.isExcludedSender('09123456789', ['09123456780']), false, 'a different number is not excluded');
+  assert.strictEqual(sms.isExcludedSender('2000', ['2000']), true, 'a bank short code matches exactly');
+  assert.strictEqual(sms.isExcludedSender('20001', ['2000']), false, 'short codes are not prefix-matched');
+  assert.strictEqual(sms.isExcludedSender('BankMellat', ['09123456789']), false, 'an alpha sender is not a number');
+  assert.strictEqual(sms.isExcludedSender('09123456789', []), false, 'empty list excludes nothing (default)');
+  assert.strictEqual(sms.isExcludedSender('09123456789', null), false, 'a missing list is safe');
+
+  // the v13 official-sender gate was reversed by the owner: only the manual list filters
+  const inboxSrc = fs.readFileSync(path.join(srcDir, 'store/SmsInboxContext.js'), 'utf8');
+  assert.ok(!inboxSrc.includes('isOfficialBankSender'), 'the official-sender gate is gone');
+  assert.ok(inboxSrc.includes('isExcludedSender'), 'the manual exclusion filter is wired into the scan');
+  assert.ok(
+    !fs.readFileSync(path.join(srcDir, 'utils/smsParser.js'), 'utf8').includes('isOfficialBankSender'),
+    'no official-sender helper remains in smsParser',
+  );
+
   // ── automatic reminder gate: once per debt, reset on payment ─────────────
   const ready = { settingsReady: true, hasPhone: true };
   assert.strictEqual(gate.REMINDER_THRESHOLD, 1000, 'threshold is in ledger units');
@@ -476,8 +497,26 @@ try {
   );
   const workflow = fs.readFileSync(path.join(ROOT, '.github/workflows/build.yml'), 'utf8');
   assert.ok(
-    workflow.includes('eKhata-v${V}-${C}.apk'),
+    workflow.includes('HesabYar-v${V}-${C}.apk'),
     'the CI APK is named with version + versionCode',
+  );
+
+  // ── in-app update checker (version.json on the website) ──────────────────
+  assert.deepStrictEqual(updateCheck.parseVersion('1.5.0'), [1, 5, 0]);
+  assert.deepStrictEqual(updateCheck.parseVersion(''), []);
+  assert.deepStrictEqual(updateCheck.parseVersion('abc'), []);
+  assert.strictEqual(updateCheck.isNewer('1.5.0', '1.4.0'), true, 'a newer version is detected');
+  assert.strictEqual(updateCheck.isNewer('1.5.0', '1.5.0'), false, 'same version is not an update');
+  assert.strictEqual(updateCheck.isNewer('1.4.0', '1.5.0'), false, 'older is never an update');
+  assert.strictEqual(updateCheck.isNewer('1.10.0', '1.9.0'), true, 'numeric compare, not string');
+  assert.strictEqual(updateCheck.isNewer('2.0', '1.9.9'), true, 'missing parts count as 0');
+  assert.strictEqual(updateCheck.isNewer('1.5', '1.5.0'), false, '1.5 equals 1.5.0');
+  assert.strictEqual(updateCheck.isNewer('', '1.0.0'), false, 'an empty remote is safe');
+  assert.strictEqual(updateCheck.isNewer('1.5.0', ''), false, 'an empty local is safe');
+  assert.ok(/^https:\/\//.test(updateCheck.UPDATE_MANIFEST_URL), 'the manifest URL is https');
+  assert.ok(
+    fs.readFileSync(path.join(ROOT, 'App.js'), 'utf8').includes('<UpdateNotice />'),
+    'the update notice is mounted in App.js',
   );
 
   // The exact owner scenario, one step at a time: save credit → send;

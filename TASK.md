@@ -340,3 +340,36 @@ GOAL (owner spec, 3 features):
       an EN entry; locale unit checks (en money/date).
 - [ ] npm run verify + Metro bundle 200 → commit feat(v12) → push → CI green
       → APK artifact eKhata-v1.4.0-11.
+
+## Batch 15 (2026-11-18, v1.5.0) — in-app update checker + public release + rebranded build
+
+GOAL: ship v1.5.0 (rebrand حسابیار + manual SMS sender exclusion + in-app update
+notification), honouring the owner's permanent APK build rules (GitHub-first download,
+mirror fallback, size/hash gate, save to `/storage/emulated/0/Download/`, update notice).
+
+- [x] `src/utils/updateCheck.js` — `UPDATE_MANIFEST_URL`
+      (`https://elyasyy23-lgtm.github.io/FocusBlocker/ContactsApp/version.json`),
+      pure `parseVersion` / `isNewer` / `fetchUpdateManifest` (8 s AbortController,
+      `?t=` cache-buster, never throws → null).
+- [x] `src/components/UpdateNotice.js` — Persian modal card, Persian alert text
+      «نسخه جدید برنامه منتشر شده است. لطفاً برای دریافت آخرین امکانات، برنامه را بروزرسانی کنید.»
+      + «بروزرسانی» (opens download page) / «بعداً»; mounted as a sibling of `RootNavigator`.
+- [x] `App.js` — `<UpdateNotice />` mounted inside `SmsInboxProvider`.
+- [x] `src/i18n/dict.js` — 3 new keys (بروزرسانی برنامه / full alert / بروزرسانی).
+- [x] `scripts/verify.js` — `AbortController` in `JS_GLOBALS`; 12 update-check unit asserts
+      + mount assert; workflow-name assert updated to `HesabYar-v${V}-${C}.apk`.
+      `npm run verify` → 47/47 files, ALL CHECKS PASSED.
+- [x] `.github/workflows/build.yml` — `permissions: contents: write`; versioned artifact
+      `HesabYar-v<ver>-<code>.apk` + STABLE release asset `HesabYar-release.apk`;
+      `softprops/action-gh-release@v2` publishes on a `v*` tag.
+- [x] Bundle gate: `npx expo export --platform android --no-bytecode` → 3.1 MB, contains
+      the manifest URL, `cloud-download-outline`, exclusion filter, fa+en update strings.
+- [x] Metro (localhost) running → `exp://127.0.0.1:8081`; warm dev bundle 200 / 9.96 MB.
+- [ ] OWNER EXPO GO TEST (gate) — verify exclusion UI + rebrand, then confirm.
+- [ ] Bump `app.json` 1.4.0 → 1.5.0, versionCode 11 → 12 (+ package.json version).
+- [ ] Commit + push `main`, tag `v1.5.0`, push tag → CI builds + publishes Release.
+- [ ] `~/watch-contacts.sh` watcher (calls `~/gh-release-download.sh`) → APK to Download.
+- [ ] Website: `FocusBlocker/ContactsApp/version.json` + `index.html` + mirrored APK.
+- [ ] Verify sha256 vs GitHub digest; report the exact filename.
+
+NOW: waiting on the owner's Expo Go confirmation before the version bump / push / build.

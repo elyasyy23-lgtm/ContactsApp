@@ -256,6 +256,56 @@ Rules that keep it working:
   deposits automatically and keeps the rest in a persisted pending list. Dedupe key
   = address|timestamp|normalized body (`@sms_seen_keys`). The shop's own card last-4
   is always ignored, and personal SMS are filtered out (needs bank name or card).
+- SMS semantics as SHIPPED in **1.4.0 (code 11, HEAD `3581d29`)** — the exact decision
+  chain, so nobody has to re-read it:
+  1. Kotlin `SmsReceiver` (priority 999) catches SMS_RECEIVED, merges multipart by sender,
+     dedupes by `live-<address>-<ts>-<bodyHash>`, stores newest-first in SharedPreferences.
+  2. JS drains on launch (after contacts hydrate), on live `onSmsReceived`, and on AppState
+     → active. Pulls the live queue + `readInbox(lastScan,100)`; first scan window = last 6h.
+  3. `isBankDeposit(parsed)` gate = `parsed.ok` (an amount was found) AND direction !== 'out'
+     AND (`bank` OR `card` present). No amount / withdrawal / no bank name / no masked card →
+     silently ignored. **In 1.4.0 there is NO sender check at all.**
+  4. `confidence === 'high' && match` → auto-recorded + `recentAuto` banner (max 10).
+     high = exactly ONE customer matched by card last-4 (shop's own card excluded) OR by
+     full `nameKey` (≥5 chars) found in the body. Everything else that passed the gate →
+     `pending` (max 50) for one-tap confirm via `recordPending`.
+  5. Amount: Rial ÷10 → Toman, ÷1000 → ledger units (1,900,000 ریال → 190,000 تومان → 190).
+  ⇒ Consequence: a bank SMS FORWARDED from a mobile number (or any personal text that
+  contains "واریز … ریال" + a bank name) IS treated as a deposit in 1.4.0 and auto-imports
+  on a high-confidence match. The app never forwards SMS anywhere; the only outgoing SMS is
+  the debt reminder (`buildReminder` → `sendSmsNative`, once per debt, threshold 1,000 units).
+- **Manual sender exclusion (2026-11-18, replaces the v13 official-sender gate).** The
+  v13 `isOfficialBankSender(address)` helper + the `officialSender && confidence==='high'
+  && match` gate were REVERSED by the owner (a customer may forward a bank receipt from a
+  personal mobile, and it must still auto-import). Instead: `settings.excludedSmsSenders`
+  (persisted in `@settings_data`, **empty by default**) is a manually-managed ignore list.
+  `src/utils/smsParser.js` exports `normalizeSender(address)` (digits only) and
+  `isExcludedSender(address, list)` (exact match, plus a last-10-digit match to tolerate a
+  country-code/leading-zero difference; a short bank code like `2000` matches exactly, never
+  as a prefix). `SmsInboxContext.scanNow` skips an excluded sender entirely — no parse, no
+  import, no pending — but the message is still marked seen (and the native queue cleared),
+  so it never resurfaces. Every other sender is processed exactly as in 1.4.0. Settings
+  gained a «نادیده‌گرفتن شماره‌ها» block (add via phone-pad input, remove via chip ✕).
+  `scripts/verify.js` asserts `isExcludedSender` behaviour and statically guards that
+  `isOfficialBankSender` no longer appears in `smsParser.js`/`SmsInboxContext.js`.
+- **In-app update checker (2026-11-18, v1.5.0 WIP).** `src/utils/updateCheck.js` holds the
+  pure helpers (`parseVersion`, `isNewer`, `fetchUpdateManifest`) + `UPDATE_MANIFEST_URL =
+  https://elyasyy23-lgtm.github.io/FocusBlocker/ContactsApp/version.json`. `isNewer` is a
+  numeric dotted compare (1.10.0 > 1.9.0); `fetchUpdateManifest` is 8 s AbortController,
+  `?t=` cache-buster, and NEVER throws (any failure → `null`). `src/components/UpdateNotice.js`
+  runs the check ONCE per launch and shows a Persian modal when the website advertises a newer
+  `latestVersion` than `APP_VERSION` (from `buildInfo.js`, i.e. `app.json`): the owner's exact
+  text «نسخه جدید برنامه منتشر شده است. لطفاً برای دریافت آخرین امکانات، برنامه را بروزرسانی کنید.»
+  + «بروزرسانی» (opens the download page) / «بعداً». It is mounted in `App.js` as a sibling of
+  `RootNavigator` so it paints above every screen. `scripts/verify.js` unit-tests `parseVersion`
+  / `isNewer` and asserts the mount. The website side (a `version.json` + download page in the
+  FocusBlocker Pages repo) is published together with the release.
+- **CI release surface (2026-11-18).** `.github/workflows/build.yml` now has
+  `permissions: contents: write`, names the artifact `HesabYar-v<ver>-<code>.apk`, ALSO writes a
+  STABLE copy `HesabYar-release.apk`, and on a `v*` tag publishes a GitHub Release via
+  `softprops/action-gh-release@v2` with that stable asset. The website + the in-app update
+  checker both point at `.../releases/latest/download/HesabYar-release.apk` (stable filename →
+  no Chrome "Download file again?" warning).
 - Run `npx expo start --tunnel` (NOT plain `expo start`): the user's phone has
   mobile data only, so LAN/QR over WiFi never resolves. Same-phone alternative that
   needs no tunnel: Expo Go → "Enter URL manually" → `exp://127.0.0.1:8081`. Pre-install

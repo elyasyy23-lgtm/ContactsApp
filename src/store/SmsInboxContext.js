@@ -23,6 +23,7 @@ import * as nativeSms from '../../modules/sms-reader';
 import { TRANSACTION, useContacts } from './ContactsContext';
 import { useSettings } from './SettingsContext';
 import { digitsOf, matchSms, smsKey } from '../utils/smsMatch';
+import { isExcludedSender } from '../utils/smsParser';
 
 const ENABLED_KEY = '@sms_auto_enabled';
 const PENDING_KEY = '@sms_pending_items';
@@ -48,6 +49,10 @@ export function SmsInboxProvider({ children }) {
   contactsRef.current = contacts;
   const ownCardRef = useRef('');
   ownCardRef.current = digitsOf(settings.cardNumber).slice(-4);
+  // Owner's manual ignore list. A ref so scanNow stays stable and always reads
+  // the latest list without re-creating the callback on every settings change.
+  const excludedRef = useRef([]);
+  excludedRef.current = settings.excludedSmsSenders || [];
 
   const available = nativeSms.isAvailable && Platform.OS === 'android';
 
@@ -157,6 +162,11 @@ export function SmsInboxProvider({ children }) {
       const auto = [];
       const queued = [];
       for (const sms of fresh) {
+        // Owner-chosen senders are ignored entirely: no parse, no import, no
+        // pending. The key is already marked seen above, so an ignored message
+        // never resurfaces on the next scan.
+        if (isExcludedSender(sms.address, excludedRef.current)) continue;
+
         const result = matchSms(sms, contactsRef.current, {
           ignoreCardLast4: ownCardRef.current,
         });
@@ -176,6 +186,10 @@ export function SmsInboxProvider({ children }) {
           candidateIds: (result.candidates || []).map((c) => c.id),
         };
 
+        // Every sender that is not on the ignore list is treated the same way:
+        // a high-confidence match auto-records, anything else waits in pending.
+        // This includes personal/mobile numbers (e.g. a customer forwarding a
+        // bank receipt), which must never be dropped — only listed numbers are.
         if (result.confidence === 'high' && result.match) {
           recordPayment(item, result.match);
           // Everything the banner modal needs to explain the deposit: who,

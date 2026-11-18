@@ -41,6 +41,32 @@ export function normalizeText(input) {
     .replace(/[\u0629\u06c0\u06d5]/g, 'ه');
 }
 
+// Manual sender exclusion (owner-configurable). The shop can list phone numbers
+// whose SMS must be ignored completely — no parse, no import, no pending entry.
+// Every other sender is processed normally: bank short codes AND personal mobile
+// numbers alike, so a receipt forwarded from a customer's own phone still works.
+// Matching is digit-only, so "+98 912…", "0912…" and "912…" resolve to the same
+// number; a bank short code like "2000" matches exactly.
+export function normalizeSender(address) {
+  return String(address || '').replace(/\D/g, '');
+}
+
+export function isExcludedSender(address, list) {
+  const target = normalizeSender(address);
+  if (!target) return false;
+  const entries = Array.isArray(list) ? list : [];
+  for (const raw of entries) {
+    const num = normalizeSender(raw);
+    if (!num) continue;
+    if (num === target) return true;
+    // Tolerate a country-code / leading-zero difference on real phone numbers.
+    if (num.length >= 7 && target.length >= 7 && num.slice(-10) === target.slice(-10)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function pickAmount(text) {
   // "1,250,000 ریال" / "250000 تومان" / "مبلغ: 500,000 ریال"
   const withUnit = /(\d[\d,.\s]{2,})\s*(ریال|ريال|تومان|تومن|IRR)/gi;

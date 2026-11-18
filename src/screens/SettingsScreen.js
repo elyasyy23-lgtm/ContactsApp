@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import LocalAuthentication from 'expo-local-authentication';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
 import { groupCard, money, toFa } from '../utils/format';
@@ -89,6 +89,27 @@ export default function SettingsScreen({ navigation }) {
   const [myName, setMyName] = useState(settings.myName || '');
   const [cardNumber, setCardNumber] = useState(settings.cardNumber || '');
   const [shopName, setShopName] = useState(settings.shopName || '');
+  const [newSender, setNewSender] = useState('');
+
+  const excludedSenders = settings.excludedSmsSenders || [];
+
+  const addExcludedSender = () => {
+    const num = newSender.replace(/\D/g, '');
+    if (num.length < 3) {
+      Alert.alert(t('شماره نامعتبر'), t('یک شماره تلفن یا کد فرستندهٔ معتبر وارد کنید.'));
+      return;
+    }
+    if (excludedSenders.includes(num)) {
+      Alert.alert(t('تکراری'), t('این شماره قبلاً در فهرست نادیده‌گرفته‌شده‌ها هست.'));
+      return;
+    }
+    saveSettings({ excludedSmsSenders: [...excludedSenders, num] });
+    setNewSender('');
+  };
+
+  const removeExcludedSender = (num) => {
+    saveSettings({ excludedSmsSenders: excludedSenders.filter((s) => s !== num) });
+  };
 
   const digits = cardNumber.replace(/\D/g, '');
   const cardValid = digits.length === 16;
@@ -240,8 +261,17 @@ export default function SettingsScreen({ navigation }) {
       saveSettings({ appLock: false });
       return;
     }
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
+    // Never let a native-module problem crash the Settings screen: if the
+    // biometric API cannot answer, treat it as "not available" and say so.
+    let hasHardware = false;
+    let enrolled = false;
+    try {
+      hasHardware = await LocalAuthentication.hasHardwareAsync();
+      enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
+    } catch {
+      hasHardware = false;
+      enrolled = false;
+    }
     if (!hasHardware || !enrolled) {
       Alert.alert(
         t('قفل در دسترس نیست'),
@@ -442,6 +472,55 @@ export default function SettingsScreen({ navigation }) {
                 <Ionicons name="chevron-back" size={16} color={colors.muted} />
               </TouchableOpacity>
             ) : null}
+
+            <View style={styles.excludeBlock}>
+              <View style={styles.excludeHead}>
+                <Ionicons name="ban-outline" size={15} color={colors.muted} />
+                <Text style={styles.excludeTitle}>{t('نادیده‌گرفتن شماره‌ها')}</Text>
+              </View>
+              <Text style={styles.excludeHint}>
+                {t('پیامک‌هایی که از این شماره‌ها بیایند به‌کلی نادیده گرفته می‌شوند: نه ثبت خودکار، نه فهرست انتظار. برای بقیهٔ شماره‌ها همه‌چیز عادی است.')}
+              </Text>
+
+              {excludedSenders.length > 0 ? (
+                <View style={styles.excludeList}>
+                  {excludedSenders.map((num) => (
+                    <View key={num} style={styles.excludeChip}>
+                      <Text style={styles.excludeChipText}>{toFa(num)}</Text>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => removeExcludedSender(num)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle" size={17} color={colors.red} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              <View style={styles.excludeAddRow}>
+                <TextInput
+                  style={styles.excludeInput}
+                  value={newSender}
+                  onChangeText={setNewSender}
+                  placeholder={t('مثلاً 09123456789')}
+                  placeholderTextColor={colors.muted}
+                  keyboardType="phone-pad"
+                  textAlign="right"
+                  onSubmitEditing={addExcludedSender}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={styles.excludeAddBtn}
+                  onPress={addExcludedSender}
+                >
+                  <Ionicons name="add" size={18} color={colors.white} />
+                  <Text style={styles.excludeAddText}>{t('افزودن')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
 
           <TouchableOpacity
@@ -666,6 +745,85 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginRight: 6,
     ...rtl,
+  },
+  excludeBlock: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  excludeHead: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+  },
+  excludeTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.text,
+    marginRight: 6,
+    ...rtl,
+  },
+  excludeHint: {
+    fontSize: 11,
+    color: colors.muted,
+    lineHeight: 18,
+    marginTop: 6,
+    ...rtl,
+  },
+  excludeList: {
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  excludeChip: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: colors.redSoft,
+    borderRadius: radius.md,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginLeft: 8,
+    marginTop: 8,
+  },
+  excludeChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.text,
+    marginLeft: 6,
+    writingDirection: 'ltr',
+  },
+  excludeAddRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  excludeInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    fontSize: 13.5,
+    color: colors.text,
+    backgroundColor: colors.card,
+    writingDirection: 'ltr',
+  },
+  excludeAddBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.green,
+    borderRadius: radius.md,
+    height: 42,
+    paddingHorizontal: 14,
+    marginRight: 8,
+  },
+  excludeAddText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '800',
+    marginRight: 4,
   },
 
   premiumRow: {

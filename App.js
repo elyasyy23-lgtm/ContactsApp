@@ -27,6 +27,7 @@ import ReportScreen from './src/screens/ReportScreen';
 import CalculatorScreen from './src/screens/CalculatorScreen';
 import LockScreen from './src/screens/LockScreen';
 import AppDrawer from './src/components/AppDrawer';
+import UpdateNotice from './src/components/UpdateNotice';
 import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
@@ -106,9 +107,13 @@ function LockGate({ children }) {
   };
 
   // Re-lock when the app goes to the background (leaving = locking again).
+  // `unlockRef` MUST be cleared here too: it is set once in handleUnlock and
+  // never reset, so the old `!unlockRef.current` guard was always false and the
+  // app stayed unlocked forever after the first unlock.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'background' && !unlockRef.current) {
+      if (next === 'background') {
+        unlockRef.current = false;
         setUnlocked(false);
       }
     });
@@ -170,6 +175,7 @@ export default function App() {
                   <SmsInboxProvider>
                     <StatusBar style="light" />
                     <RootNavigator />
+                    <UpdateNotice />
                   </SmsInboxProvider>
                 </ContactsProvider>
               </ProfilesProvider>

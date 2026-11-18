@@ -256,6 +256,14 @@ export const en = {
   'واریز {amount} تومان برای «{name}» به‌عنوان دریافت وجه ثبت شد.': '{amount} Toman from “{name}” recorded as a payment.',
   '{label} به مبلغ {amount} تومان برای «{name}» ثبت شود؟': 'Record {label} of {amount} Toman for “{name}”?',
   'ثبت نشد': 'Not recorded',
+  'نادیده‌گرفتن شماره‌ها': 'Ignore numbers',
+  'پیامک‌هایی که از این شماره‌ها بیایند به‌کلی نادیده گرفته می‌شوند: نه ثبت خودکار، نه فهرست انتظار. برای بقیهٔ شماره‌ها همه‌چیز عادی است.': 'SMS from these numbers are ignored completely: no auto-recording and no pending list. Every other number works as usual.',
+  'مثلاً 09123456789': 'e.g. 09123456789',
+  'افزودن': 'Add',
+  'شماره نامعتبر': 'Invalid number',
+  'یک شماره تلفن یا کد فرستندهٔ معتبر وارد کنید.': 'Enter a valid phone number or sender ID.',
+  'تکراری': 'Already added',
+  'این شماره قبلاً در فهرست نادیده‌گرفته‌شده‌ها هست.': 'This number is already in the ignored list.',
 
   // ── Premium ───────────────────────────────────────────────────────────────
   'مشتری نامحدود': 'Unlimited customers',
@@ -407,4 +415,12 @@ Object.assign(en, {
   'واریزهای خودکار ثبت‌شده': 'Auto-recorded deposits',
   'بستن': 'Close',
   '{n} واریز': '{n} deposits',
+});
+
+// In-app update notice (version.json on the website).
+Object.assign(en, {
+  'بروزرسانی برنامه': 'App update',
+  'نسخه جدید برنامه منتشر شده است. لطفاً برای دریافت آخرین امکانات، برنامه را بروزرسانی کنید.':
+    'A new version of the app has been released. Please update to get the latest features.',
+  'بروزرسانی': 'Update',
 });

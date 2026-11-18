@@ -16,6 +16,9 @@ const EMPTY = {
   cardNumber: '',
   shopName: '',
   appLock: false,
+  // Phone numbers whose bank SMS the shop wants the app to ignore completely.
+  // Empty by default: every sender is processed until the owner adds one.
+  excludedSmsSenders: [],
 };
 
 const SettingsContext = createContext(null);
@@ -29,6 +32,11 @@ function normalize(raw) {
     // The `reminderAutoSend` field was removed 2026-11-10 — reminders are
     // manual-only now (per-customer `reminderEnabled` on each contact).
     appLock: Boolean(raw?.appLock),
+    // Digits-only, trimmed, de-duplicated. Anything non-numeric is stripped so
+    // "+98 912…", "0912…" and "912…" collapse to one entry.
+    excludedSmsSenders: Array.isArray(raw?.excludedSmsSenders)
+      ? [...new Set(raw.excludedSmsSenders.map((n) => String(n || '').replace(/\D/g, '')).filter(Boolean))]
+      : [],
   };
 }
 

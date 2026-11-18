@@ -6,7 +6,10 @@ import { AppState, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import LocalAuthentication from 'expo-local-authentication';
+// expo-local-authentication exposes ONLY named exports — a default import would
+// resolve to `undefined` and crash with "Cannot read property 'hasHardwareAsync'
+// of undefined". Always import the namespace.
+import * as LocalAuthentication from 'expo-local-authentication';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
 import { t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';

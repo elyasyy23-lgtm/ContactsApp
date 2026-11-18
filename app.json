@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "eKhata",
+    "name": "حسابیار",
     "slug": "ContactsApp",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "versionCode": 11,
+      "versionCode": 12,
       "package": "com.elyasyass.ContactsApp"
     },
     "web": {

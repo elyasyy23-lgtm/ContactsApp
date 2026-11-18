@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: apk-${{ github.ref }}
@@ -39,6 +39,12 @@ jobs:
       # Every APK is named with its version + versionCode (read once, used by the
       # artifact name below). Two builds used to share one file name, which made
       # it impossible to tell which build was installed on the phone.
+      #
+      # `stable` is the UNVERSIONED release asset name: the website and the
+      # in-app update checker always point at
+      #   .../releases/latest/download/HesabYar-release.apk
+      # so Chrome never shows the "Download file again?" warning and never
+      # renames the file to "… (1).apk".
       - name: Read app version
         id: meta
         run: |
@@ -46,8 +52,9 @@ jobs:
           C=$(node -p "require('./app.json').expo.android.versionCode")
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "code=$C" >> "$GITHUB_OUTPUT"
-          echo "apk=eKhata-v${V}-${C}.apk" >> "$GITHUB_OUTPUT"
-          echo "Building eKhata v${V} (versionCode ${C})"
+          echo "apk=HesabYar-v${V}-${C}.apk" >> "$GITHUB_OUTPUT"
+          echo "stable=HesabYar-release.apk" >> "$GITHUB_OUTPUT"
+          echo "Building حسابیار v${V} (versionCode ${C})"
 
       # Gradle 9.4.1 (used by the Expo SDK 58 template) needs JDK 17+.
       - name: Set up JDK 21
@@ -130,14 +137,26 @@ jobs:
         run: |
           cd android/app/build/outputs/apk/release
           cp app-release.apk "${{ steps.meta.outputs.apk }}"
+          cp app-release.apk "${{ steps.meta.outputs.stable }}"
           ls -lh
           sha256sum "${{ steps.meta.outputs.apk }}"
-          echo "### eKhata ${{ steps.meta.outputs.version }} (build ${{ steps.meta.outputs.code }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "### حسابیار ${{ steps.meta.outputs.version }} (build ${{ steps.meta.outputs.code }})" >> "$GITHUB_STEP_SUMMARY"
           echo "APK: \`${{ steps.meta.outputs.apk }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release asset: \`${{ steps.meta.outputs.stable }}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: eKhata-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.code }}
+          name: HesabYar-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.code }}
           path: android/app/build/outputs/apk/release/${{ steps.meta.outputs.apk }}
           if-no-files-found: error
           retention-days: 30
+
+      # A tag (v1.5.0) publishes the PUBLIC download — the artifact above needs a
+      # GitHub login, a release asset does not. The website + the in-app update
+      # checker both read releases/latest/download/HesabYar-release.apk.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/release/${{ steps.meta.outputs.stable }}
+          generate_release_notes: true
