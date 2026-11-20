@@ -11,6 +11,7 @@
     },
     "android": {
       "allowBackup": true,
+      "usesCleartextTraffic": true,
       "permissions": [
         "RECEIVE_SMS",
         "READ_SMS",

@@ -1,5 +1,194 @@
 # TASK — ContactsApp / eKhata (Persian UI + Toman + auto SMS + Settings + Premium)
 
+## CURRENT TASK (2026-11-20) — CCTV v1.5.1 release, Expo Go gate pending
+
+GOAL: ship the verified CCTV archive-playback work as ContactsApp v1.5.1 / code 13 ONLY
+after the owner explicitly confirms the Expo Go test of candidate `1` = `archive-local`.
+Local work is complete; do NOT bump version, push, tag, or build APK until the gate is
+cleared in writing.
+
+STATUS 2026-11-20:
+- Owner replied `1` — recorded as CCTV candidate `1` = `archive-local` (vault note written).
+- Project `AGENTS.md` still records the Expo Go gate as pending; the `1` reply selected the
+  candidate, it did NOT prove the test passed.
+- Verified locally: `npm run verify` 53/53 + ALL CHECKS PASSED; forbidden-hook scan 0;
+  Metro 8082 warm Android dev bundle 10,085,987 B with all CCTV tokens.
+- Release plan (after confirmation): bump `app.json` 1.5.0→1.5.1 / code 12→13, commit+push
+  `main`, tag `v1.5.1`, watch CI, deliver `HesabYar-release.apk` via `~/gh-release-download.sh`
+  to Download, then bump central `ContactsApp/version.json` to 1.5.1 and revalidate live.
+- No version bump, commit, push, tag, CI build, or APK delivery has been done yet.
+
+### Historical phased diagnostics goal (2026-11-19, COMPLETE)
+GOAL: finish a local, sanitized CCTV/DVR diagnostics log + Persian RTL screen named
+«گزارش و عیب‌یابی دوربین» in 8 independently verifiable phases. Work ONE phase at a
+time; after each phase inspect the actual Git diff, run the relevant tests, report exactly
+what changed/verified, and STOP before the next phase. No APK/push/tag/CI without approval.
+
+### Phase checklist
+- [x] Phase 1 — re-scope existing diagnostics helpers/context to CCTV-only; narrow storage key
+      and sections; CCTV-named provider/hooks; App.js import cleanup; inspect diff; verify.
+- [x] Phase 2 — `src/screens/CctvDiagnosticsScreen.js`: Persian RTL severity filter, empty state,
+      error styling, exact actions «کپی همه لاگ‌ها» / «کپی خطاها» / «پاک کردن لاگ‌ها» with
+      clear-confirm, using `useCctvDiagnostics()` / `useCctvDiagnosticsActions()`.
+- [x] Phase 3 — wire `CctvDiagnosticsProvider` around the app and add the stack route to
+      `CctvDiagnosticsScreen`; no global/unexpected JS error logging. Drawer entry is Phase 4.
+- [x] Phase 4 — drawer entry «گزارش و عیب‌یابی دوربین» + i18n mappings in `src/i18n/dict.js`.
+- [x] Phase 5 — instrument ONLY CCTV/DVR events: connection test success/failure, playback
+      start/failure, archive errors, invalid DVR settings/config, relevant player errors.
+- [x] Phase 6 — extend `scripts/verify.js` with CCTV diagnostics/sanitization/storage-cap/
+      stable-actions/static-instrumentation assertions.
+- [x] Phase 7 — full verification: `npm run verify`; restart ContactsApp Metro on port 8082
+      only (PID-targeted; never touch HayatAlSahabah on 8081); Android dev bundle 200.
+- [x] Phase 8 — update `TASK.md` status + final report; hand off `exp://127.0.0.1:8082` and
+      WAIT for the owner's explicit Expo Go confirmation (no push/tag/CI/APK).
+
+### Decisions / constraints (owner order)
+- Owner narrowed scope to CCTV/DVR only. Do NOT instrument SMS/transactions/customers/
+  reminders/app-wide errors, and do NOT build a broad «گزارش و عیب‌یابی» section.
+- Existing general diagnostics code is reusable ONLY for CCTV logging; keep names/imports
+  explicit and CCTV-specific. Preserve all unrelated uncommitted work.
+- Do not change playback timing; do not invent DVR CGI commands.
+- Never log passwords, RTSP URLs/credentials, customer names/phones, card/financial data.
+- Keep ALL existing app features and user data; package ID unchanged.
+- One phase at a time: real code changes → actual diff inspection → tests → report → STOP.
+- Expo Go gate: ContactsApp Metro on 8082 only; no APK/push/tag/CI until owner confirms.
+- `scripts/verify.js` still mentions port 8081 in its header — ignore it; owner rule is 8082.
+
+### Phase 1 verification (2026-11-19)
+- `src/utils/diagnostics.js`:
+  - header = CCTV/DVR-only; storage key `@cctv_diagnostics_log_v1`;
+  - `CCTV_LOG_SECTIONS = cctv/settings/playback`; broad `LOG_SECTIONS` removed;
+  - `normalizeLogSection()` maps broad legacy section names to `cctv`.
+- `src/store/DiagnosticsContext.js`:
+  - `CctvDiagnosticsProvider`, `CctvDiagnosticsContext`, `CctvDiagnosticsActionsContext`,
+    `useCctvDiagnostics`, `useCctvDiagnosticsActions`;
+  - `clearedRef` durable clear-before-hydration fix kept; no `logDebug` action.
+- `App.js`: imports `CctvDiagnosticsProvider` and `CctvDiagnosticsScreen`; removed unused
+  `LOG_SECTIONS`; existing `CctvPlayer` route preserved; no global instrumentation added.
+- No stale `DiagnosticsProvider` / `useDiagnostics` / `LOG_SECTIONS` /
+  `@diagnostics_log_v1` references found in JS/JSON source.
+- `npm run verify` → `parse: 52/52 files ok`, `unbound identifiers: checked`,
+  `unit checks: ok`, `ALL CHECKS PASSED`.
+- Targeted hook harness (outside repo):
+  `/data/data/com.termux/files/usr/tmp/zyvo/phase1-diagnostics-harness.cjs`
+  → `11/11 pass` (five stable action identities, clear-before-hydration, storage removal,
+  post-clear logging/persistence, no-throw storage failure, CCTV section normalization).
+  Run with `NODE_PATH=/data/data/com.termux/files/home/ContactsApp/node_modules`.
+- Actual diff inspected: `git status --short`, `git diff -- App.js`,
+  `git diff --no-index /dev/null src/utils/diagnostics.js`,
+  `git diff --no-index /dev/null src/store/DiagnosticsContext.js`.
+
+### Dependencies
+- Phase 2 needs Phase 1 actions. Phase 3 needs Phase 2 screen. Phase 4 needs Phase 3.
+- Phase 5 needs Phases 1–3. Phase 6 needs Phases 1–5. Phase 7 needs Phases 1–6.
+- Phase 8 is the final report after Phase 7 verification.
+
+### Phase 2 verification (2026-11-19)
+- `src/screens/CctvDiagnosticsScreen.js` created (new file, 359 lines); actual diff inspected with
+  `git diff --no-index -- /dev/null src/screens/CctvDiagnosticsScreen.js`.
+- Screen uses `useCctvDiagnostics()` / `useCctvDiagnosticsActions()`, `useLang()`, `filterLogs()`,
+  severity filter, empty/loading states, error styling, manual RTL (`row-reverse` + `rtl` /
+  `rtlCenter`), and exact actions «کپی همه لاگ‌ها» / «کپی خطاها» / «پاک کردن لاگ‌ها» with
+  clear-confirm «همه لاگ‌های دوربین پاک می‌شوند. ادامه میدهید؟».
+- Malformed mixed-script strings removed; grep found no `خلاصه報告`, `نمایش_data`, or
+  `لاگ的记录`; only clean title/action matches remain.
+- `npm run verify` → `parse: 53/53 files ok`, `unbound identifiers: checked`,
+  `unit checks: ok`, `ALL CHECKS PASSED`.
+- No full Metro bundle check yet (Phase 7 only). No APK/push/tag/CI. STOP before Phase 3.
+- NOTE: provider/stack/drawer code for later phases is already present in the working tree but is
+  deliberately NOT checked off or reported until each phase gets its own diff inspection + tests.
+
+### Phase 3 verification (2026-11-19)
+- Actual diff inspected: `git diff -- App.js` (+ `git status --short`). Diff is exactly three
+  hunks: import of `CctvDiagnosticsProvider`, imports of `CctvPlayerScreen` +
+  `CctvDiagnosticsScreen`, two `<Stack.Screen>` registrations, and the provider wrapper.
+- `App.js` structure confirmed:
+  - `CctvDiagnosticsProvider` wraps `<StatusBar style="light" />` + `<RootNavigator />` +
+    `<UpdateNotice />` INSIDE `SmsInboxProvider` (so the provider is mounted for every route);
+  - `<Stack.Screen name="CctvPlayer" component={CctvPlayerScreen} />` preserved;
+  - `<Stack.Screen name="CctvDiagnostics" component={CctvDiagnosticsScreen} />` added in
+    `MainStack`, directly after `CctvPlayer`, before `CustomerForm`.
+- No global/unexpected JS error logging added: grep for
+  `ErrorUtils|setGlobalHandler|global.Error|unhandledrejection|onerror|console.error` across
+  `App.js`, `src/store/DiagnosticsContext.js`, `src/utils/diagnostics.js`,
+  `src/screens/CctvDiagnosticsScreen.js` → zero matches.
+- No changes to playback timing, DVR commands, navigation params, SMS/ledger flows, or
+  existing screens besides the two `Stack.Screen` lines.
+- `npm run verify` → `parse: 53/53 files ok`, `unbound identifiers: checked`,
+  `unit checks: ok`, `ALL CHECKS PASSED`.
+- No full Metro bundle check yet (Phase 7 only). No APK/push/tag/CI. STOP before Phase 4.
+
+### Phase 4 verification (2026-11-19)
+- `src/components/AppDrawer.js` — exactly ONE new `MenuItem` (5 added lines, no other change):
+  `icon="bug-outline"`, `label={t('گزارش و عیب‌یابی دوربین')}`,
+  `onPress={() => go('CctvDiagnostics')}`. Placed after «پیامک‌های بانکی», before the divider.
+- Navigation pattern reused, not reinvented: `go(screen)` already calls
+  `navigation.navigate('MainStack', { screen })` — the same helper every other drawer row uses
+  (stack name is load-bearing). No new drawer/navigation code, no duplicate entry
+  (`grep -c "CctvDiagnostics" src/components/AppDrawer.js` = 1).
+- `src/i18n/dict.js` — 27 English mappings appended as a `// ── CCTV diagnostics ──` block inside
+  the existing `Object.assign(en, { … })` section, single-quote style preserved, +77 lines total,
+  zero modifications to existing keys. Covers every literal used by
+  `src/screens/CctvDiagnosticsScreen.js` (title «گزارش و عیب‌یابی دوربین» → `Camera diagnostics`,
+  section labels, severity filter Info/Warning/Error, the exact actions «کپی همه لاگ‌ها» /
+  «کپی خطاها» / «پاک کردن لاگ‌ها», the clear confirm, empty states, footer note) plus the two
+  copy-result alerts.
+- Coverage measured: 29 distinct `t()` literals in the screen → **0 missing** in dict.
+- Actual diff inspected: `git diff -- src/components/AppDrawer.js` (+5 only) and
+  `git diff -- src/i18n/dict.js` (additions only, `git diff --stat` = 5 + 77 lines).
+- No changes to CCTV playback, diagnostics logic, SMS, customers, transactions, reminders,
+  `App.js`, or any existing i18n key. No global error logging or new instrumentation.
+- `npm run verify` → `parse: 53/53 files ok`, `unbound identifiers: checked`,
+  `unit checks: ok`, `ALL CHECKS PASSED`.
+- No Metro bundle yet (Phase 7), no APK/push/tag/CI, port 8081 untouched. STOP before Phase 5.
+
+### Blockers
+- `src/screens/CctvDiagnosticsScreen.js` now exists; full Metro bundle is deferred to Phase 7.
+  Do NOT run the dev bundle until Phases 3-6 land.
+- `src/store/DiagnosticsContext.js`, `src/utils/diagnostics.js`, and
+  `src/screens/CctvDiagnosticsScreen.js` are untracked, so use
+  `git diff --no-index /dev/null <file>` to inspect their diff.
+
+### Phase 5 — CCTV/DVR instrumentation (DONE 2026-11-19, awaiting Phase 6)
+Files touched (nothing else): `src/screens/CctvPlayerScreen.js`,
+`src/screens/SettingsScreen.js`, `src/screens/CustomerDetailScreen.js`.
+22 log call sites across the 7 owner-approved event points:
+1. DVR settings save (SettingsScreen) — saved INFO / invalid IP, invalid port ERROR.
+2. «Test TV Playback» (SettingsScreen) — invalid IP/port ERROR, unbuildable URL ERROR,
+   test start INFO, success INFO (HTTP status), not-configured WARNING, HTTP/network ERROR.
+3. TV trigger auto-send (CctvPlayerScreen `sendToTv`) — start INFO, sent INFO, not-configured
+   WARNING, failure ERROR.
+4. Copy RTSP link (CctvPlayerScreen `copyRtsp`) — success INFO / failure ERROR.
+5. Open external player (CctvPlayerScreen `openExternal`) — handoff INFO / open failure ERROR.
+6. Per-transaction camera tap (CustomerDetailScreen `openTransactionCctv`) — open INFO,
+   invalid transaction time WARNING.
+7. Player session end (CctvPlayerScreen unmount, one-shot ref) — «جلسهٔ پخش آرشیو بسته شد» INFO.
+Sanitization: every detail string is a fixed Persian phrase or an HTTP status / reason code —
+no password, no RTSP URL, no customer name, no phone, no card/financial data. RTSP generation,
+VLC handoff, playback logic, dependencies and unrelated features untouched.
+Evidence: `npm run verify` → parse 53/53, unit checks ok, ALL CHECKS PASSED; forbidden global
+hooks scan (`ErrorUtils|setGlobalHandler|global.Error|unhandledrejection|onerror|console.error`)
+= 0; Metro restarted PID-targeted on 8082 only (8081 stayed 200 the whole time); warm Android
+dev bundle HTTP 200 / 10,065,726 B; served bundle carries `useCctvDiagnosticsActions` ×13,
+`CCTV_LOG_SECTIONS` ×29, `logWarning` ×13, `transactionTimestamp` ×4 and all 7 new Persian
+log strings (1 literal hit each).
+
+NOW: Phase 5 VERIFIED and STOPPED. Next only after owner continuation: Phase 6 — extend
+`scripts/verify.js` with CCTV diagnostics unit asserts (sanitization, storage cap, stable
+actions, static instrumentation coverage). No APK/push/tag/CI.
+
+## ARCHIVE — CCTV black-screen investigation + broad diagnostics pass (superseded by the phased plan above)
+GOAL: find why the CCTV archive player is black (XMEye works, generated RTSP failed in VLC), add safe diagnostics logs and a Persian RTL «گزارش و عیب‌یابی» drawer screen with filters/copy/clear + persistent local storage, verify, and hand off for Expo Go. NO APK/push/tag/build without approval.
+- [x] 1. Inspect exact generated URL inputs (`rtsp.js`, settings, CctvPlayerScreen) and current player capability.
+- [x] 2. Research XMEye/Xiongmai RTSP archive syntax (host/port/channel/subtype/time params) against owner facts; document what is confirmed vs unverified.
+- [ ] 3. Add pure sanitizing diagnostics module + persistent local log store with max size.
+- [ ] 4. Instrument CCTV, SMS, transactions, customers, reminders, app errors with safe INFO/WARNING/ERROR events.
+- [ ] 5. Add Persian RTL Diagnostics screen with section/level filters, copy-all/copy-errors/clear-confirm, empty state.
+- [ ] 6. Register drawer entry «گزارش و عیب‌یابی» + i18n mappings + verify assertions.
+- [ ] 7. Run `npm run verify`, Android Metro bundle check, report changed files/results/limitations.
+DECISIONS: do not change playback timing; do not invent DVR CGI commands; never log passwords, card numbers, customer names/phones, or credentials-bearing URLs; keep all existing features/data.
+NOW: implementing step 3 — add the pure sanitizing diagnostics module + local persistent store, then instrument CCTV/SMS/transactions/customers/reminders/errors. Research result: XM RTSP is on port 554, native live form is `.../user=...&password=...&channel=1&stream=0.sdp?real_stream`; no confirmed XM RTSP archive `starttime/endtime` support; real archive playback uses DVRIP `OPFileQuery`/`OPPlayBack`. Current black screen also has no native decoder in `CctvPlayerScreen`.
+
 GOAL (v2 requirements, 2026-11-09): finish the eKhata-style customer-ledger app with
 (1) 100% Persian UI, (2) Toman everywhere (no Rial), (3) automatic SMS reminder when a
 customer's debt passes 1,000,000 Toman using the exact Persian template, (4) a Settings
@@ -348,7 +537,7 @@ notification), honouring the owner's permanent APK build rules (GitHub-first dow
 mirror fallback, size/hash gate, save to `/storage/emulated/0/Download/`, update notice).
 
 - [x] `src/utils/updateCheck.js` — `UPDATE_MANIFEST_URL`
-      (`https://elyasyy23-lgtm.github.io/FocusBlocker/ContactsApp/version.json`),
+      (`https://elyasyy23-lgtm.github.io/elyasyy-apps/ContactsApp/version.json`),
       pure `parseVersion` / `isNewer` / `fetchUpdateManifest` (8 s AbortController,
       `?t=` cache-buster, never throws → null).
 - [x] `src/components/UpdateNotice.js` — Persian modal card, Persian alert text
@@ -365,11 +554,98 @@ mirror fallback, size/hash gate, save to `/storage/emulated/0/Download/`, update
 - [x] Bundle gate: `npx expo export --platform android --no-bytecode` → 3.1 MB, contains
       the manifest URL, `cloud-download-outline`, exclusion filter, fa+en update strings.
 - [x] Metro (localhost) running → `exp://127.0.0.1:8081`; warm dev bundle 200 / 9.96 MB.
-- [ ] OWNER EXPO GO TEST (gate) — verify exclusion UI + rebrand, then confirm.
-- [ ] Bump `app.json` 1.4.0 → 1.5.0, versionCode 11 → 12 (+ package.json version).
-- [ ] Commit + push `main`, tag `v1.5.0`, push tag → CI builds + publishes Release.
-- [ ] `~/watch-contacts.sh` watcher (calls `~/gh-release-download.sh`) → APK to Download.
-- [ ] Website: `FocusBlocker/ContactsApp/version.json` + `index.html` + mirrored APK.
-- [ ] Verify sha256 vs GitHub digest; report the exact filename.
+- [x] OWNER EXPO GO TEST (gate) — confirmed; release build authorized.
+- [x] Bump `app.json` 1.4.0 → 1.5.0, versionCode 11 → 12.
+- [x] Commit `7bf01a5` + push `main`, tag `v1.5.0`, push tag → CI run `44339886541` SUCCESS,
+      Release `v1.5.0` published (`HesabYar-release.apk` 49155385 B, sha256 `a456...9882`).
+- [x] `~/watch-contacts.sh` (calls `~/gh-release-download.sh`) → APK saved to
+      `/storage/emulated/0/Download/HesabYar-release.apk`, digest verified byte-for-byte.
+- [x] Website: `elyasyy-apps/ContactsApp/version.json` (latestVersion 1.5.0) +
+      `contactsapp.html` detail page + `assets/hesabyar-icon.png` + mirrored
+      `HesabYar-release.apk` at repo root + `index.html` HesabYar `.apptile` card +
+      `sitemap.xml` entry. Originally published as commit `7ab0ca7` on `main` (FocusBlocker);
+      migrated 2026-11-20 to `elyasyy-apps` Pages; old FocusBlocker URLs redirect.
+- [x] LIVE verified: `contactsapp.html` 200, `HesabYar-release.apk` content-length
+      49155385, `ContactsApp/version.json` 200, icon 200, sitemap + index carry the app;
+      live APK head+tail 256 KB hashes match the local verified file (byte-identical).
 
-NOW: waiting on the owner's Expo Go confirmation before the version bump / push / build.
+NOW: v1.5.0 fully shipped — app + Release + Pages site + in-app update checker live.
+NEXT (owner): on-device check of the exclusion UI + update notice on the next release.
+
+---
+
+# TASK v1.6 WIP — CCTV archive playback (2026-11-19, owner request)
+
+GOAL: add an incremental CCTV archive playback feature for the owner's generic
+Chinese/XMEye/Xiongmai (XM) DVR on the same LAN, using archived RTSP only and
+a modular configurable TV trigger. Do NOT change SMS, ledger, navigation,
+existing i18n keys, or existing UI behaviour. Keep version 1.5.0 during WIP.
+
+## Known DVR facts
+- Serial `292c3e41a34907d9`; system `V4.03.R11`; MAC `001241b568ee`.
+- Owner-entered local IP, port `34567`, username `admin`.
+- RTSP archive template:
+  `rtsp://[User]:[Pass]@[IP]:[Port]/cam/realmonitor?channel=1&subtype=0&starttime=[YYYYMMDDThhmmssZ]&endtime=[YYYYMMDDThhmmssZ]`.
+- Start time = transaction timestamp minus 5 minutes. End time/duration must be configurable.
+- TV CGI endpoint/payload is unknown; keep it configurable in code.
+
+## Steps
+- [x] Read `AGENTS.md`, current tree state, `SettingsContext`, `SettingsScreen`,
+      `CustomerDetailScreen`, `App.js`, i18n/format/theme/UI helpers, verify script.
+- [x] Inspect Expo Video SDK 58 docs; no RTSP support found in cached docs; native
+      RTSP playback may not work in Expo Go.
+- [x] Add DVR fields to `src/store/SettingsContext.js` (`@settings_data`) and
+      normalize them safely: `dvrIp`, `dvrPort`, `dvrUser`, `dvrPassword`, `dvrSerial`.
+- [x] Add Persian RTL Settings section with the 5 fields + exact button `Test TV Playback`.
+- [x] Add `src/utils/rtsp.js` (URL builder, timestamp formatting, timestamp − 5 min)
+      and `src/utils/tvPlayback.js` (`triggerTVPlayback(ip, port, user, pass, timestamp)`,
+      configurable endpoint/payload).
+- [x] Add CCTV player screen/route with graceful Expo Go / network error UI.
+- [x] Add per-transaction camera control on each `CustomerDetailScreen` transaction row
+      (sibling touchable, `accessibilityLabel`/tooltip `پخش فیلم دوربین`); no general customer-level button.
+- [x] Add cleartext HTTP config for local DVR CGI (`expo.android.usesCleartextTraffic`).
+- [x] Extend `scripts/verify.js` with pure RTSP/TV helper checks + file assertions.
+- [x] Run `npm run verify` (50/50 files ok, ALL CHECKS PASSED; rerun after installing `expo-clipboard`).
+- [x] FIX Expo Go render error at `CctvPlayerScreen.js:137` (`undefined is not a function`): `useLang()` returns `{lang,setLang,isEn,ready}`, not `t`; `t` is imported from `../i18n`. Applied same fix to `src/components/UpdateNotice.js` (identical latent pattern).
+- [x] Per-transaction CCTV entry point: `CustomerDetailScreen` has `openTransactionCctv(item)`, calls `transactionTimestamp(item)` and `navigation.navigate('CctvPlayer', { timestamp, customerName })`; invalid/missing time shows `زمان تراکنش نامعتبر` / `زمان این تراکنش نامعتبر است؛ پخش آرشیو ممکن نیست.`. General customer-level CCTV button removed; share/delete behaviour untouched.
+- [x] `transactionTimestamp(value)` now returns a valid raw string unchanged (no `.000Z` rewrite), `null` for missing/invalid; non-string valid values use ISO. This preserves each old/new transaction's own exact timestamp.
+- [x] Extended `scripts/verify.js` with per-transaction assertions and exact older-window case (`2026-11-18T08:00:00Z` → `20261118T075500Z`/`20261118T080500Z`).
+- [x] Final `npm run verify`: `parse: 50/50 files ok`, `unbound identifiers: checked`, `unit checks: ok`, `ALL CHECKS PASSED`.
+- [x] Metro restarted ONLY for ContactsApp on `http://127.0.0.1:8082/` with `CI=1` (file watching disabled due to inotify ENOSPC); active HayatAlSahabah process on port 8081 left untouched.
+- [x] Final Android dev bundle on port 8082: `bundle_http=200 bundle_bytes=9128407`; tokens `transactionTimestamp=3`, `openTransactionCctv=2`, `transactionCctv=2`, `Invalid transaction time=1`, `CctvPlayerScreen=9`.
+- [x] **RTSP port split fix (2026-11-19):** the app was sending RTSP to `dvrPort` (34567 = DVRIP
+      control, closed on this box). `src/utils/rtsp.js` now has `DEFAULT_RTSP_PORT='554'` +
+      `rtspPortOf()`/`dvripPortOf()`/`channelOf()`, `toDvrStamp()` defaults to the DVR LOCAL clock
+      (UTC kept as `{utc:true}` + `toDahuaStamp()`), and `buildLiveUrl`/`buildPlaybackCandidates`
+      (archive-local, archive-utc, `/cam/playback`, live-xm). `SettingsContext` stores `rtspPort` +
+      `dvrChannel`; Settings shows a «پورت RTSP» field and a 1–4 channel selector; the player renders
+      an ordered «گزینه‌های پخش» card (play + copy per candidate) so the firmware question is settled
+      in one tap. `tvPlayback` keeps `port` for the CGI endpoint and takes `rtspPort` for video.
+- [x] `scripts/verify.js`: CCTV block rewritten for the new API (local/UTC/Dahua stamps, port
+      defaults, live URLs, candidate order, channel clamp, masking of both `user:pass@` and
+      `password=` forms) + a translated-strings coverage assert for the three CCTV screens.
+- [x] Final `npm run verify` after the fix: `parse: 53/53 files ok`, `unbound identifiers: checked`,
+      `unit checks: ok`, `ALL CHECKS PASSED`; forbidden-hook scan (`ErrorUtils|setGlobalHandler|
+      console.error|unhandledrejection|onerror`) = **0** in the CCTV files.
+- [x] Metro 8082 restarted PID-targeted with `CI=1` (8081 untouched, both 200); warm Android dev
+      bundle **10,085,987 B** containing `buildPlaybackCandidates`=3, `rtspPortOf`=3, `channelOf`=3,
+      `toDahuaStamp`=4, `rtspPort`=30, `dvrChannel`=12 and all new Persian labels ×2.
+- [ ] WAIT for explicit Expo Go confirmation that each transaction's camera icon opens `CctvPlayer` with that transaction's exact time; then commit-push + tag + CI build.
+- [ ] After APK: test real RTSP/CGI on device and report exact APK filename + sha256.
+
+## Decisions
+- Persist settings in existing `SettingsContext`/AsyncStorage, not a new store.
+- No automatic honorific/text rewriting; no SMS/ledger changes.
+- No native RTSP/video dependency: the player only builds/masks/copies the link and triggers TV playback; Expo Go must still render safely.
+- CCTV is per-transaction only; no general customer-level button. Camera control is a sibling touchable because nested touchables get swallowed on Android.
+- `transactionTimestamp()` preserves raw valid strings verbatim; no `new Date()` fallback/invented current time.
+- Start = transaction time − 5 min; end = start + configurable duration (default 10 min).
+- No push, tag, or APK build until the owner explicitly confirms the Expo Go test.
+- TV trigger stays a separate module with configurable endpoint/payload.
+- Same-device Expo Go uses localhost port 8082, never `--tunnel`; use PID-targeted kill for ContactsApp 8082 processes only.
+
+NOW: RTSP/port split fix implemented + verified (53/53, bundle 10,085,987 B on 8082). Owner said
+2026-11-20 he has NOT run Expo Go yet; release gate CLOSED — no bump/push/tag/CI/APK until he reports
+the result. `1` = candidate `archive-local` only, not a pass.
+NEXT: on his explicit confirmation → bump version, commit, push, tag, CI build. Real DVRIP archive
+playback (`OPFileQuery`/`OPPlayBack` on port 34286) still needs a native module and its own approval.

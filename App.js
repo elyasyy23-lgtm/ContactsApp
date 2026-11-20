@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { LanguageProvider } from './src/i18n/LanguageContext';
+import { CctvDiagnosticsProvider } from './src/store/DiagnosticsContext';
 import { ContactsProvider } from './src/store/ContactsContext';
 import { ProfilesProvider } from './src/store/ProfilesContext';
 import { SmsInboxProvider } from './src/store/SmsInboxContext';
@@ -15,6 +16,8 @@ import { SettingsProvider, useSettings } from './src/store/SettingsContext';
 import { PremiumProvider, usePremium } from './src/store/PremiumContext';
 import HomeScreen from './src/screens/HomeScreen';
 import CustomerDetailScreen from './src/screens/CustomerDetailScreen';
+import CctvPlayerScreen from './src/screens/CctvPlayerScreen';
+import CctvDiagnosticsScreen from './src/screens/CctvDiagnosticsScreen';
 import CustomerFormScreen from './src/screens/CustomerFormScreen';
 import SmsImportScreen from './src/screens/SmsImportScreen';
 import ProfilesScreen from './src/screens/ProfilesScreen';
@@ -57,6 +60,8 @@ function MainStack() {
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="CustomerDetail" component={CustomerDetailScreen} />
+      <Stack.Screen name="CctvPlayer" component={CctvPlayerScreen} />
+      <Stack.Screen name="CctvDiagnostics" component={CctvDiagnosticsScreen} />
       <Stack.Screen name="CustomerForm" component={CustomerFormScreen} />
       <Stack.Screen name="SmsImport" component={SmsImportScreen} />
       <Stack.Screen name="Profiles" component={ProfilesScreen} />
@@ -173,10 +178,12 @@ export default function App() {
               <ProfilesProvider>
                 <ContactsProvider>
                   <SmsInboxProvider>
-                    <StatusBar style="light" />
-                    <RootNavigator />
-                    <UpdateNotice />
-                  </SmsInboxProvider>
+                    <CctvDiagnosticsProvider>
+                      <StatusBar style="light" />
+                      <RootNavigator />
+                      <UpdateNotice />
+                    </CctvDiagnosticsProvider>
+                    </SmsInboxProvider>
                 </ContactsProvider>
               </ProfilesProvider>
             </PremiumProvider>

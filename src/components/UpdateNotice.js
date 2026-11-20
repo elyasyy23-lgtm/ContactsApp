@@ -11,13 +11,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Linking, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
 import { APP_VERSION } from '../buildInfo';
 import { fetchUpdateManifest, isNewer } from '../utils/updateCheck';
 import { colors, radius, shadows, rtlCenter } from '../theme';
 
 export default function UpdateNotice() {
-  const { t } = useLang();
+  useLang(); // re-render when the app language changes
   const [info, setInfo] = useState(null);
   const ranRef = useRef(false);
 

@@ -12,7 +12,7 @@
 // without React or a device.
 
 export const UPDATE_MANIFEST_URL =
-  'https://elyasyy23-lgtm.github.io/FocusBlocker/ContactsApp/version.json';
+  'https://elyasyy23-lgtm.github.io/elyasyy-apps/ContactsApp/version.json';
 
 /** '1.5.0' → [1,5,0]. Junk / empty → []. */
 export function parseVersion(value) {

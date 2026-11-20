@@ -1,3 +1,88 @@
+## CCTV-only diagnostics scope (owner, 2026-11-19 — supersedes broad diagnostics work)
+
+- The requested diagnostics section is **CCTV/DVR only**: «گزارش و عیب‌یابی دوربین».
+  Do NOT build application-wide diagnostics or instrument SMS/transactions/customers/reminders.
+- Existing general diagnostics helpers are reusable ONLY for CCTV logging; narrow them to
+  CCTV event categories and keep names/imports explicit. Do not delete unrelated work.
+- Logs are local-only, sanitized (no passwords, RTSP credentials/URLs, customer names/phones,
+  card/financial data), severity-filterable, capped, persistent, and copyable via the exact
+  actions «کپی همه لاگ‌ها» / «کپی خطاها» / «پاک کردن لاگ‌ها» with a clear-confirm dialog.
+- Phase order (TASK.md is the status source of truth): 1 review/re-scope helpers/context →
+  2 RTL CCTV diagnostics screen → 3 provider + stack route only → 4 drawer entry + i18n →
+  5 instrument CCTV/DVR events only → 6 focused tests/verify.js assertions →
+  7 `npm run verify` + Metro 8082 bundle → 8 TASK.md/report + Expo Go gate.
+- One phase at a time; inspect actual Git diff after each phase; no push/tag/CI/APK; never
+  touch HayatAlSahabah Metro on 8081; Expo Go gate still applies.
+- Phase 1 RE-SCOPED + VERIFIED 2026-11-19: `src/utils/diagnostics.js` now uses
+  `@cctv_diagnostics_log_v1` + `CCTV_LOG_SECTIONS` (cctv/settings/playback), no broad
+  `LOG_SECTIONS`; `src/store/DiagnosticsContext.js` exports CCTV-named hooks/provider;
+  `App.js` imports `CctvDiagnosticsProvider`/`CctvDiagnosticsScreen` (no `LOG_SECTIONS`).
+  `npm run verify` = 52/52 + ALL CHECKS PASSED; targeted hook harness = 11/11 pass.
+  Actual diff inspected. Continued below; Phase 2 is now verified.
+- Phase 2 VERIFIED 2026-11-19: `src/screens/CctvDiagnosticsScreen.js` created (new file,
+  359 lines); actual diff inspected via `git diff --no-index -- /dev/null ...`. Persian RTL
+  severity filter + empty/loading states + error styling + exact copy-all/copy-errors/
+  clear-confirm actions; no malformed mixed-script strings; `npm run verify` = 53/53 +
+  ALL CHECKS PASSED. STOP before Phase 3. Later-phase code already present in the tree is
+  NOT checked off until its own phase is inspected/tested/reported.
+- Phase 3 VERIFIED 2026-11-19: `App.js` mounts `CctvDiagnosticsProvider` inside `SmsInboxProvider`
+  (wrapping StatusBar/RootNavigator/UpdateNotice) and registers `CctvPlayer` + `CctvDiagnostics`
+  stack screens; grep for `ErrorUtils|setGlobalHandler|global.Error|unhandledrejection|onerror|
+  console.error` over the four diagnostics files = 0 matches; `npm run verify` = 53/53.
+- Phase 4 VERIFIED 2026-11-19 (drawer + i18n): ONE new `MenuItem` in `src/components/AppDrawer.js`
+  (`bug-outline`, label «گزارش و عیب‌یابی دوربین», `go('CctvDiagnostics')`), reusing the existing
+  `go()` → `navigation.navigate('MainStack', { screen })` pattern; grep count for `CctvDiagnostics`
+  in the drawer = 1 (no duplicate). `src/i18n/dict.js` gained 27 English mappings in a
+  `// ── CCTV diagnostics ──` block inside the existing `Object.assign(en, { … })` (additions only,
+  single-quote style); coverage = 29 screen `t()` literals → 0 missing. `npm run verify` 53/53
+  ALL CHECKS PASSED. No Metro bundle yet (Phase 7), no APK/push/tag/CI.
+  NOTE: `dict.js` already carries 25 PRE-EXISTING duplicate keys (all older entries, none of them
+  the new CCTV ones) — left untouched; do not "fix" them in a diagnostics phase.
+- If `scripts/verify.js` still says port 8081, ignore it: ContactsApp Metro must stay on 8082.
+- **METRO 8082 — correct start (2026-11-19).** `~/restart-metro-contacts.sh` is STALE and
+  DANGEROUS for this task: it runs `pkill -f "[e]xpo"` (would kill HayatAlSahabah on 8081) and
+  starts on port 8081. Do NOT use it while 8081 must survive. Correct, PID-targeted start:
+  stop only `pgrep -af "[e]xpo start.*8082"`, then
+  `EXPO_NO_TELEMETRY=1 setsid bash -c "cd ~/ContactsApp && EXPO_NO_TELEMETRY=1 CI=1 npx expo start --host localhost --port 8082 --clear </dev/null >~/contacts-metro-8082.log 2>&1" </dev/null >/dev/null 2>&1 &`
+  → `exp://127.0.0.1:8082`. CI=1 disables reloads, so restart after every code edit. Cold Android
+  dev bundle ≈ 100 s / ~10.06 MB (warm it first). QR helper: python `qrcode` (installed) →
+  `qrcode.make('exp://127.0.0.1:8082')`; PNG saved to
+  `/storage/emulated/0/Download/contacts-expo-8082-qr.png`.
+  Benign Termux warning at startup: "An unknown error occurred while installing React Native
+  DevTools … reading 'arm64'" — devtools only, Metro still serves 200.
+
+## Native CCTV archive playback module (2026-11-20, code complete, Kotlin compile still unverified)
+- `modules/cctv-playback/` is a LOCAL Expo module (`expo.modules.cctvplayback.CctvPlaybackModule`);
+  autolinking is proven: `npx expo-modules-autolinking search --platform android` lists
+  `cctv-playback` → `expo.modules.cctvplayback.CctvPlaybackModule`. It is required for archive
+  playback (Expo Go cannot open a TCP socket).
+- `DvripClient.kt`: DVRIP over TCP — 20-byte header (`BB2xII2xHI`), `sofia_hash` login (msgid 1000),
+  `OPFileQuery` (1440, 64-row pages), `OPPlayBack` claim (1424) + `DownloadStart` (1420) chunks until a
+  zero-length header, then `DownloadStop`. Guards: 32 MB packet cap in `readExact`, JSON-refusal
+  detection (`first[0] == '{'` → `describeRet`), `cancelled` flag, `stamp(Date)` emits the DEVICE-LOCAL
+  `YYYY-MM-DD HH:MM:SS` (never UTC `Z`). `ArchiveFile(fileName, begin, end, size)`.
+- `CctvPlaybackModule.kt`: `playArchive({ip, port, user, password, channel, startMs, endMs})` runs on a
+  worker thread → widened ±30 min query window → `pickFile` → download to
+  `cacheDir/cctv/clip-<ts>.h264` → starts `CctvPlayerActivity`. Emits `onCctvEvent`
+  (`stage` / `progress` / `error`). `pruneClips()` keeps only the 2 newest clips (cache bounded).
+  `stop()` sets `cancelRequested` AND closes the socket — a blocked DVRIP read only unblocks when the
+  socket dies — and the cancelled run deletes its partial clip.
+- `CctvPlayerActivity.kt`: memory-mapped player, no external app, no player prompt. `ClipView`
+  (`FileChannel.map` READ_ONLY; unwraps into memory only when the clip is frame-container shaped and
+  ≤48 MB), `ElementaryStream` (Annex-B 3/4-byte start-code split, `video/avc` / `video/hevc` sniff,
+  SPS/PPS-first `firstPlayableIndex`, pacing from frame count at 25 fps, CODEC_CONFIG + END_OF_STREAM
+  flags). Persian status lines (missing/empty/unplayable/failed), tap to close.
+- `CctvPlayerScreen.js` calls the module; in Expo Go it receives `{ok:false, reason:'unavailable'}` and
+  shows the copy-only diagnostics + an honest message. There is NO RTSP handoff and NO external player
+  anywhere — that was what produced VLC's password prompt.
+- Kotlin gotchas that cost a review pass (remember them):
+  `Byte` does NOT widen to `Int` — use `unit[0].toInt() and 0xFF`; and `continue` inside a `when` used as
+  an EXPRESSION is unsafe — write a `when` STATEMENT with `var payloadSize: Long`.
+- `scripts/verify.js` now walks the whole `modules/` tree (54/54 files) instead of only
+  `modules/sms-reader/index.js`, so the new native JS wrapper is parsed like app code.
+- Release gate still CLOSED: no version bump, push, tag, CI run or APK until the owner reports the
+  Expo Go result. Kotlin is only compiled by a real build, so the first CI run IS the compiler.
+
 ## RELEASE RULE (owner, 2026-11-11 — applies to EVERY change)
 
 **Expo Go test gate comes BEFORE any push or APK build.** The order is fixed:
@@ -290,7 +375,7 @@ Rules that keep it working:
   `isOfficialBankSender` no longer appears in `smsParser.js`/`SmsInboxContext.js`.
 - **In-app update checker (2026-11-18, v1.5.0 WIP).** `src/utils/updateCheck.js` holds the
   pure helpers (`parseVersion`, `isNewer`, `fetchUpdateManifest`) + `UPDATE_MANIFEST_URL =
-  https://elyasyy23-lgtm.github.io/FocusBlocker/ContactsApp/version.json`. `isNewer` is a
+  https://elyasyy23-lgtm.github.io/elyasyy-apps/ContactsApp/version.json`. `isNewer` is a
   numeric dotted compare (1.10.0 > 1.9.0); `fetchUpdateManifest` is 8 s AbortController,
   `?t=` cache-buster, and NEVER throws (any failure → `null`). `src/components/UpdateNotice.js`
   runs the check ONCE per launch and shows a Persian modal when the website advertises a newer
@@ -299,7 +384,7 @@ Rules that keep it working:
   + «بروزرسانی» (opens the download page) / «بعداً». It is mounted in `App.js` as a sibling of
   `RootNavigator` so it paints above every screen. `scripts/verify.js` unit-tests `parseVersion`
   / `isNewer` and asserts the mount. The website side (a `version.json` + download page in the
-  FocusBlocker Pages repo) is published together with the release.
+  elyasyy-apps Pages repo) is published together with the release; old FocusBlocker URLs redirect.
 - **CI release surface (2026-11-18).** `.github/workflows/build.yml` now has
   `permissions: contents: write`, names the artifact `HesabYar-v<ver>-<code>.apk`, ALSO writes a
   STABLE copy `HesabYar-release.apk`, and on a `v*` tag publishes a GitHub Release via
@@ -522,3 +607,174 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   unit checks). It now also asserts the fa/en digit+calendar switch
   (`jalaliDate` fa `۱۴۰۵/۰۸/۱۱` vs en `2026/11/02`). Bundle gate:
   `npx expo export --platform android --no-bytecode` (plain Hermes fails on Termux).
+
+## v1.5.0 shipped 2026-11-18 (rebrand + SMS exclusion + update checker + public site)
+
+- Version 1.5.0 / versionCode 12 (app.json). Rebrand: name حسابیار, launcher label حسابیار,
+  package stays `com.elyasyass.ContactsApp` (updates install in place). Manual SMS sender
+  exclusion (`settings.excludedSmsSenders`, empty default; `isExcludedSender`/`normalizeSender`
+  in `src/utils/smsParser.js`; `scanNow` skips an excluded sender but still marks it seen).
+- In-app update checker: `src/utils/updateCheck.js` (`UPDATE_MANIFEST_URL =
+  https://elyasyy23-lgtm.github.io/elyasyy-apps/ContactsApp/version.json`) +
+  `src/components/UpdateNotice.js` (Persian modal; «بروزرسانی» opens `pageUrl`).
+  `version.json` = `{latestVersion, downloadUrl, pageUrl}`. Bump `latestVersion` there to
+  announce a release.
+- CI `.github/workflows/build.yml`: versioned artifact `HesabYar-v<ver>-<code>.apk` + STABLE
+  release asset `HesabYar-release.apk`; `softprops/action-gh-release@v2` on a `v*` tag;
+  `permissions: contents: write`.
+- Released: commit `7bf01a5` → `main` + tag `v1.5.0`; CI run `44339886541` SUCCESS.
+  `HesabYar-release.apk` 49155385 B, sha256
+  `a456b49bc9cd331de4cc5e5b34665f4cb99972e9dac1c5a1b3db208e0d959882`
+  (package com.elyasyass.ContactsApp 1.5.0/code 12, minSdk 24 / targetSdk 36,
+  arm64-v8a + armeabi-v7a). Delivered to `/storage/emulated/0/Download/HesabYar-release.apk`.
+- Public site (elyasyy-apps Pages repo; originally FocusBlocker commit `7ab0ca7` → `main`): `contactsapp.html` detail page + `assets/hesabyar-icon.png`
+  + `HesabYar-release.apk` at the repo ROOT + `ContactsApp/version.json` + `index.html`
+  `.apptile` card (`apps.hesab.*` fa+en keys) + `sitemap.xml` entry. Migrated 2026-11-20; old FocusBlocker URLs redirect.
+  LIVE: `https://elyasyy23-lgtm.github.io/elyasyy-apps/contactsapp.html`,
+  `.../HesabYar-release.apk` (content-length 49155385, head+tail byte-identical to the
+  verified local file), `.../ContactsApp/version.json`.
+- Download path on this carrier: `~/gh-release-download.sh` (GitHub-first → ghproxy.net →
+  gh-proxy.com, per-host sha256 gate). Watcher `~/watch-contacts.sh <runId> [tag]`.
+
+## CCTV archive playback WIP (2026-11-19, owner request)
+- Incremental feature only: keep SMS/ledger/navigation/existing i18n keys unchanged. Version stays
+  1.5.0 / code 12 until the owner confirms Expo Go. Owner explicitly said 2026-11-20: "I haven't
+  run the Expo Go test yet. Please wait, I will test it and let you know the result before you
+  build anything." Release gate CLOSED: no bump/push/tag/CI/APK until that result arrives; `1`
+  only selected candidate `1` = `archive-local`.
+- DVR settings live in the existing `SettingsContext` / `@settings_data`: `dvrIp`, `dvrPort`,
+  `dvrUser`, `dvrPassword`, `dvrSerial`. `normalize()` keeps ASCII values; no new store.
+- Pure helpers: `src/utils/rtsp.js` (`transactionTimestamp`, `toDvrStamp`, `archiveWindow`,
+  `buildArchiveUrl`, `maskRtspUrl`) and `src/utils/tvPlayback.js`
+  (`buildTvPlaybackRequest`, `triggerTVPlayback`). `transactionTimestamp()` returns a valid raw
+  string UNCHANGED (no `.000Z` rewrite), `null` when missing/invalid; non-string values use ISO.
+  Archive starts 5 minutes before the transaction timestamp; default duration 10 minutes; TV CGI
+  endpoint/payload stays empty/configurable until the owner supplies it.
+  VERIFIED 2026-11-19 (read-only audit): the window is NOT user-configurable — no settings key
+  exists (SettingsContext has only dvrIp/dvrPort/dvrUser/dvrPassword/dvrSerial), nothing in the
+  UI edits it. `DEFAULT_ARCHIVE_LEAD_MINUTES = 5` / `DEFAULT_ARCHIVE_DURATION_MINUTES = 10`
+  (rtsp.js:6-7) are the LIVE values: `CctvPlayerScreen` omits both args → defaults apply;
+  `SettingsScreen.testDvrPlayback` hardcodes the same 5 / 10 explicitly. End = start + 10 min,
+  so playback runs 5 min before → 5 min after the transaction (10 min total), e.g.
+  tx 12:34:56 → 12:29:56Z…12:39:56Z. `scripts/verify.js:525-526` asserts both constants.
+- ARCHIVE-PLAYBACK ROOT-CAUSE AUDIT 2026-11-19 (read-only, nothing changed): the app builds
+  `rtsp://user:pass@<dvrIp>:<dvrPort>/cam/realmonitor?...&starttime=<UTC Z>&endtime=<UTC Z>`.
+  THREE independent defects, in order of certainty:
+  1. PORT CONFLATION — there is only `dvrPort` (default `34567`, the DVRIP control port) and it is
+     used as the RTSP port (`SettingsContext` has no `rtspPort`; `grep 554` = 0 hits). RTSP on a
+     Xiongmai box listens on **554**; 34567 speaks the binary DVRIP protocol, so VLC talks RTSP to a
+     non-RTSP service and fails instantly (`playback_multiple_errors` is VLC's generic 2-error toast).
+  2. NO RTSP ARCHIVE ON XM — Xiongmai firmware serves LIVE over RTSP (`/user=U&password=P&channel=1&
+     stream=0.sdp?real_stream`; Dahua-style `/cam/realmonitor` accepted but `subtype` silently
+     ignored). Archive is only via DVRIP `OPFileQuery` (1440) + `OPPlayBack` (claim 1424 /
+     start 1420, `PlayMode: "ByName"`, raw H.264-over-TCP frames). The `starttime/endtime` params on
+     `/cam/realmonitor` are NOT a XM feature — `/cam/playback` + underscore timestamps is DAHUA.
+  3. TIMEZONE — `toDvrStamp()` emits UTC `...Z`, but the DVR's own clock/records are device-local;
+     DVRIP `StartTime` is `YYYY-MM-DD HH:MM:SS` local. `createdAt` is stored as `toISOString()` (UTC),
+     so even a working playback would land 3.5 h off in Iran.
+  Consequence: no amount of URL tweaking makes archive work in Expo Go — it needs a native build
+  (TCP socket + DVRIP client + decoder). Live RTSP support does NOT imply archive support.
+- Owner RTSP template:
+  `rtsp://[User]:[Pass]@[IP]:[Port]/cam/realmonitor?channel=1&subtype=0&starttime=[YYYYMMDDThhmmssZ]&endtime=[YYYYMMDDThhmmssZ]`.
+- Exact labels: Settings `Test TV Playback`; per-transaction camera control on
+  `CustomerDetailScreen` uses `accessibilityLabel`/tooltip `پخش فیلم دوربین`. The general
+  customer-level button is REMOVED. Each row opens `CctvPlayer` with that row's exact
+  `createdAt` timestamp; invalid times show `زمان تراکنش نامعتبر` and a graceful alert. Camera
+  control is a sibling touchable of the row/share/delete controls; never nest touchables.
+- Persian RTL UI uses explicit `row-reverse`, right-aligned text, `writingDirection:'rtl'`; inputs
+  stay LTR/ASCII with `asciiInput`; never force RTL globally.
+- Expo Go must render JS/UI safely; native RTSP/video playback may not work there. APK/CI build is
+  gated on the owner's explicit Expo Go confirmation.
+- 2026-11-19 root-cause fix: `src/screens/CctvPlayerScreen.js:137` crashed with `undefined is not a
+  function` because it did `const { t } = useLang()`. `useLang()` from
+  `src/i18n/LanguageContext.js` returns `{ lang, setLang, isEn, ready }`, NOT `t`; `t` is imported
+  directly from `src/i18n`. Fixed in both `CctvPlayerScreen.js` and `UpdateNotice.js`:
+  `import { t } from '../i18n';` + `useLang(); // re-render when the app language changes`.
+  NEVER destructure `t` from `useLang()` in this project.
+- Latest verification after the per-transaction rewire and raw-timestamp fix: `npm run verify`
+  = `parse: 50/50 files ok`, `unbound identifiers: checked`, `unit checks: ok`, ALL CHECKS PASSED.
+  Final Android dev bundle on port 8082: `bundle_http=200 bundle_bytes=9128407`; tokens
+  `transactionTimestamp=3`, `openTransactionCctv=2`, `transactionCctv=2`,
+  `Invalid transaction time=1`, `CctvPlayerScreen=9`.
+- Metro must be restarted PID-targeted ONLY for ContactsApp port 8082 with
+  `env CI=1 EXPO_NO_TELEMETRY=1 npx expo start --host localhost --port 8082 --clear`
+  (`exp://127.0.0.1:8082`). CI mode disables file watching; restart after code edits. A second
+  Expo watcher hits inotify `ENOSPC`; do not kill unrelated processes (HayatAlSahabah stays on 8081).
+- Owner Expo Go confirmation is still pending; no push/tag/CI/APK build has been done.
+- XM RTSP/archive research (2026-11-19): GitHub code search found `Moxnatiy/hass-xmeye/docs/protocol.md` (live-measured on NBD8008R-U firmware `V4.03.R11.061B0197`) and `whatisor/rtsp-url-formats/README.md`. Confirmed: XM DVRIP control port is TCP `34567`, RTSP is `554`; native XM live RTSP is `rtsp://IP:554/user=USER&password=PASS&channel=1&stream=0.sdp?real_stream`; Dahua-style `/cam/realmonitor?channel=1&subtype=0` is accepted but `subtype` is ignored. NOT confirmed: XM supports RTSP archive `starttime/endtime`; those query params belong to Hikvision/Dahua playback paths. Real XM archive playback uses DVRIP `OPFileQuery` (1440) + `OPPlayBack` (1424/1420/1422), `ByName` with a real recording path (ByTime ignores channel), returning raw DVRIP frames. Current black screen has two independent causes: unverified/unsupported archive URL (using DVRIP port `34567` inside `rtsp://`) and no native RTSP/video decoder in `CctvPlayerScreen`. Do not claim playback works.
+- **CCTV PLAYBACK — MEASURED PROTOCOL MAP for the owner's DVR (2026-11-19, read-only)**
+  Device: **AHB7804R-MH-V2**, 8 channels (cameras on 1-4), LAN IP **192.168.1.139**.
+  Full TCP scan (all 65535 ports, 41 s) → open: **554, 9080, 9530, 34286**. `34567` is CLOSED
+  (connection refused) — the port the app uses by default.
+  - **554** = RTSP, banner `Server: H264DVR 1.0`, `Public: OPTIONS, DESCRIBE, SETUP, TEARDOWN,
+    GET_PARAMETER, SET_PARAMETER, PLAY, PAUSE`; every DESCRIBE (even `/nope/xyz`) answers
+    `401` + `WWW-Authenticate: Digest realm="6485006c05b0ff6f"` → auth is checked before the path,
+    so RTSP path validity cannot be probed without credentials. Live streams only.
+  - **34286** = **DVRIP** (proved: 0xFF magic header + msgid 1001 reply + `Ret 203` = "Password is
+    incorrect" for an empty password). This is the archive/control channel XMEye talks to.
+  - **9080** = HTTP, NetSurveillance web UI (`LogoString 'NetSurveillance'`, `/m.jsp`,
+    `LoardAddress=http://xmsecu.com:8080/ocx/NewActive.exe`) — its playback needs that Windows
+    ActiveX plugin, i.e. even the vendor's own web UI does not do archive over RTSP.
+  - **9530** = accepts TCP then resets on any payload; no HTTP/TLS/DVRIP reply (unknown proprietary).
+  - Evidence that XM playback is native-protocol only: `hatcha6/pointy` driver —
+    `supports_playback = True` / `playback_is_streamed = True` with the comment "Playback goes over
+    the native protocol, not RTSP ... Live tiles come from ffmpeg over RTSP";
+    `Moxnatiy/hass-xmeye` protocol.md (measured on V4.03.R11) — `OPPlayBack` 1420/1424, `ByName`;
+    `whatisor/rtsp-url-formats` lists XM RTSP as LIVE ONLY (playback URLs exist only for Dahua);
+    `StrixCamDB` NetSurveillance entry = live/snapshot URLs only. ⇒ **never claim RTSP archive.**
+  - Channel numbering: **RTSP is 1-based**; **DVRIP `Channel` is 0-based** (protocol.md, dvrip.py).
+    App has `DEFAULT_ARCHIVE_CHANNEL = 1` (`src/utils/rtsp.js:4`) and NO channel setting → only
+    camera 1 can ever be requested; cameras 2-4 are unplayable by design.
+  - CORRECTION to the earlier "no LAN host reachable" note: that sweep ran while the DVR was off/on
+    another path; the DVR IS reachable now (554 answers, ICMP fine). Do not reuse that conclusion.
+
+### RTSP port split + playback candidates (2026-11-19, verified, Expo Go pending)
+- `src/utils/rtsp.js` owns the URL truth: `DEFAULT_RTSP_PORT='554'`, `DEFAULT_DVRIP_PORT='34567'`,
+  `DEFAULT_CHANNEL_COUNT=4`, `rtspPortOf()` / `dvripPortOf()` / `channelOf()` (clamped 1–4).
+- `toDvrStamp(value, {utc})` → **local** basic stamp by default; `toDahuaStamp()` → `YYYY_MM_DD_HH_MM_SS`;
+  `archiveWindow()` returns `startTime`/`endTime` (local) + `startTimeUtc`/`endTimeUtc` + Dahua stamps.
+- `buildArchiveUrl({timeMode:'local'|'utc', template})`, `buildLiveUrl({style:'xm'|'dahua'})`,
+  `buildPlaybackCandidates()` → `[archive-local, archive-utc, playback-local, live-xm]`.
+  `maskRtspUrl()` masks `user:pass@` AND `password=` query values.
+- Store: `SettingsContext` persists `rtspPort` + `dvrChannel`; Settings UI has «پورت RTSP» + channel chips;
+  `tvPlayback` uses `port` for the CGI endpoint, `rtspPort` for the video URL.
+- `CctvPlayerScreen` shows «گزینه‌های پخش» (play/copy per candidate) because the box is an Xiongmai whose
+  RTSP server documents only live streaming — the archive path is settled by trying, not guessing.
+- Measurements that drove this: TCP open = 554, 9080, 9530, 34286 (**34567 refused**); 554 answers
+  `Server: H264DVR 1.0` and returns `401` for EVERY path before path validation; 34286 answers DVRIP
+  (msgid 1001, `Ret 203` on empty password). Channel bases: RTSP 1-based, DVRIP/web 0-based.
+
+### VLC IS THE PLAYER — archive playback without the password prompt (2026-11-20, owner order)
+- OWNER DECISION (supersedes the embedded-player work): **VLC stays the shop owner's video player.**
+  Do not add an in-app video player and do not remove VLC. `CctvPlayerActivity.kt` was DELETED and its
+  `<activity>` entry removed from `modules/cctv-playback/android/src/main/AndroidManifest.xml`; the
+  module now only *fetches* a recording (`playArchive` → local file) and opens URIs (`openInVlc`).
+- ROOT CAUSE of VLC's «RTSP authentication» dialog (measured against the working live URL): the live
+  URL carries the credentials in the **PATH** (`rtsp://ip:554/user=admin&password=…&channel=1&stream=0.sdp?real_stream`),
+  so VLC never sees a userinfo component and never starts its own auth. All three archive formats used
+  `user:pass@` **userinfo**, which VLC drops for RTSP, so VLC answered the DVR's `401 Digest` itself
+  and showed its login dialog. Fix = match the live URL's credential shape.
+- `src/utils/rtsp.js`: new `XM_ARCHIVE_RTSP_TEMPLATE` =
+  `rtsp://[IP]:[Port]/user=[User]&password=[Pass]&channel=[Channel]&stream=[Subtype].sdp?real_stream&starttime=[StartTime]&endtime=[EndTime]`
+  + `buildXmArchiveUrl()` (reuses `archiveWindow`, local stamps, no `Z`). `buildPlaybackCandidates()`
+  order is now `[archive-xm-path, archive-local, archive-utc, playback-local, live-xm]` — the
+  path-credential candidate is FIRST because it is the only one that cannot trigger the VLC prompt.
+  `maskRtspUrl()` still masks `password=` (verified).
+- `src/utils/vlc.js` (new): `openInVlc(url, {mimeType})` and `openLocalFileInVlc(path, …)`.
+  Local clips go through `FileSystem.getContentUriAsync` → `content://` and are opened by the native
+  `openInVlc`, which adds **`FLAG_GRANT_READ_URI_PERMISSION`** (React Native's `Linking` does NOT, so
+  VLC gets permission-denied on app-private files). Verified the authority/paths cover the clip:
+  `expo-file-system` 58.0.13 provider `${applicationId}.FileSystemFileProvider`, paths
+  `<cache-path path=".">` and the module writes to `cacheDir/cctv/clip-*.h264`.
+- `CctvPlayerScreen.js`: primary card = «دریافت آرشیو و پخش در VLC» (DVRIP download → VLC on the local
+  file, prompt-free by construction); «گزینههای پخش» rows gained a ▶ button that hands each RTSP
+  candidate straight to VLC (plus the existing copy). `CANDIDATE_LABELS` gained
+  `'archive-xm-path'`. In Expo Go the DVRIP download is unavailable and the screen says so.
+- i18n: +9 `dict.js` keys (fa→en) for the new VLC strings; `npm run verify` = **55/55 ALL CHECKS PASSED**
+  (candidate-order asserts updated + `no userinfo on the primary candidate`).
+- Metro on **8082 only** (PID-targeted kill; 8081 untouched, both 200). Warm Android dev bundle
+  200 / 10,151,499 B containing `openLocalFileInVlc`, `archive-xm-path`, `buildXmArchiveUrl`,
+  `FLAG_GRANT`; `CctvPlayerActivity` occurrences = 0.
+- OPEN: on-device test not done. Unknown whether this firmware honours `starttime/endtime` on the XM
+  path URL (device question) — the candidate list exists to settle it by pressing ▶ in VLC.
+  Release gate still CLOSED: no bump/push/tag/CI/APK.

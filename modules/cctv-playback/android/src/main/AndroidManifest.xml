@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- DVRIP runs on plain TCP (34567-class port), so INTERNET is the only
+       permission the archive downloader needs. No player activity lives here:
+       VLC is the video player. -->
+  <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

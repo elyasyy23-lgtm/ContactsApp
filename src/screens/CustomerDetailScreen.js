@@ -38,6 +38,8 @@ import {
 } from '../store/ContactsContext';
 import { useSettings } from '../store/SettingsContext';
 import { useProfiles } from '../store/ProfilesContext';
+import { CCTV_LOG_SECTIONS } from '../utils/diagnostics';
+import { useCctvDiagnosticsActions } from '../store/DiagnosticsContext';
 import {
   ActionButton,
   Avatar,
@@ -47,6 +49,7 @@ import {
 } from '../components/ui';
 import AmountSheet from '../components/AmountSheet';
 import { buildReceipt, canShare } from '../utils/share';
+import { transactionTimestamp } from '../utils/rtsp';
 import { t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
 
@@ -87,6 +90,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
   } = useContacts();
   const { settings } = useSettings();
   const { profileById } = useProfiles();
+  const { logInfo, logWarning } = useCctvDiagnosticsActions();
 
   const [sheet, setSheet] = useState({
     visible: false,
@@ -321,8 +325,34 @@ export default function CustomerDetailScreen({ navigation, route }) {
     }
   };
 
+  const openTransactionCctv = (item) => {
+    const timestamp = transactionTimestamp(item);
+    if (!timestamp) {
+      Alert.alert(
+        t('زمان تراکنش نامعتبر'),
+        t('زمان این تراکنش نامعتبر است؛ پخش آرشیو ممکن نیست.'),
+      );
+      logWarning(
+        CCTV_LOG_SECTIONS.CCTV,
+        'زمان تراکنش برای آرشیو دوربین نامعتبر است',
+        'پخش آرشیو آغاز نشد.',
+      );
+      return;
+    }
+    logInfo(
+      CCTV_LOG_SECTIONS.CCTV,
+      'باز کردن آرشیو دوربین برای یک تراکنش',
+      'آرشیو از پنج دقیقه پیش از زمان تراکنش آغاز می‌شود.',
+    );
+    navigation.navigate('CctvPlayer', {
+      timestamp,
+      customerName: contact?.name || '',
+    });
+  };
+
   const renderTransaction = (item) => {
     const isPayment = item.type === TRANSACTION.PAYMENT;
+    const isDebt = item.type === TRANSACTION.CREDIT;
     const stamp = item.createdAt
       ? dateTime(item.createdAt)
       : { date: item.date || '', time: item.time || '' };
@@ -377,6 +407,21 @@ export default function CustomerDetailScreen({ navigation, route }) {
             </Text>
           </View>
         </TouchableOpacity>
+
+        {/* The camera belongs to DEBT rows only («ثبت بدهی»): a payment has no
+            goods hand-over to review. Payments keep just the receipt share. */}
+        {isDebt ? (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            hitSlop={8}
+            style={styles.transactionCctv}
+            onPress={() => openTransactionCctv(item)}
+            accessibilityRole="button"
+            accessibilityLabel={t('پخش فیلم دوربین')}
+          >
+            <Ionicons name="videocam-outline" size={16} color={colors.primary} />
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           activeOpacity={0.7}
@@ -800,6 +845,7 @@ const styles = StyleSheet.create({
   },
   transactionEnd: { alignItems: 'flex-end' },
   transactionAmount: { fontSize: 13.5, fontWeight: '800' },
+  transactionCctv: { padding: 6 },
   transactionShare: { padding: 6 },
 
   deleteContact: {

@@ -30,17 +30,24 @@ import { useSmsInbox } from '../store/SmsInboxContext';
 import { ScreenHeader } from '../components/ui';
 import { BUILD_STAMP } from '../buildInfo';
 import { buildAppShareText, canShare } from '../utils/share';
+import {
+  buildArchiveUrl,
+  maskRtspUrl,
+} from '../utils/rtsp';
+import { triggerTVPlayback } from '../utils/tvPlayback';
+import { CCTV_LOG_SECTIONS } from '../utils/diagnostics';
+import { useCctvDiagnosticsActions } from '../store/DiagnosticsContext';
 import { LANGUAGES, t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
 
-function Field({ label, icon, hint, ...props }) {
+function Field({ label, icon, hint, inputStyle, ...props }) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.inputWrap}>
         <Ionicons name={icon} size={17} color={colors.muted} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputStyle]}
           placeholderTextColor={colors.muted}
           {...props}
         />
@@ -73,6 +80,7 @@ export default function SettingsScreen({ navigation }) {
   const { lang, setLang } = useLang(); // re-render when the app language changes
   const insets = useSafeAreaInsets();
   const { settings, saveSettings } = useSettings();
+  const { logInfo, logWarning, logError } = useCctvDiagnosticsActions();
   const { premium, trialActive, trialDaysLeft } = usePremium();
   const { contacts, importContacts } = useContacts();
   const { profiles, importProfiles } = useProfiles();
@@ -90,6 +98,14 @@ export default function SettingsScreen({ navigation }) {
   const [cardNumber, setCardNumber] = useState(settings.cardNumber || '');
   const [shopName, setShopName] = useState(settings.shopName || '');
   const [newSender, setNewSender] = useState('');
+  const [dvrIp, setDvrIp] = useState(settings.dvrIp || '');
+  const [dvrPort, setDvrPort] = useState(settings.dvrPort || '34567');
+  const [rtspPort, setRtspPort] = useState(settings.rtspPort || '554');
+  const [dvrChannel, setDvrChannel] = useState(Number(settings.dvrChannel) || 1);
+  const [dvrUser, setDvrUser] = useState(settings.dvrUser || 'admin');
+  const [dvrPassword, setDvrPassword] = useState(settings.dvrPassword || '');
+  const [dvrSerial, setDvrSerial] = useState(settings.dvrSerial || '292c3e41a34907d9');
+  const [dvrTesting, setDvrTesting] = useState(false);
 
   const excludedSenders = settings.excludedSmsSenders || [];
 
@@ -109,6 +125,145 @@ export default function SettingsScreen({ navigation }) {
 
   const removeExcludedSender = (num) => {
     saveSettings({ excludedSmsSenders: excludedSenders.filter((s) => s !== num) });
+  };
+
+  const dvrIpValue = String(dvrIp || '').trim();
+  const dvrPortValue = String(dvrPort || '').replace(/\D/g, '');
+  const dvrPortValid =
+    dvrPortValue.length > 0 &&
+    Number(dvrPortValue) > 0 &&
+    Number(dvrPortValue) <= 65535;
+  const rtspPortValue = String(rtspPort || '').replace(/\D/g, '');
+  const rtspPortValid =
+    rtspPortValue.length > 0 &&
+    Number(rtspPortValue) > 0 &&
+    Number(rtspPortValue) <= 65535;
+  const dvrIpValid = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(dvrIpValue)
+    && dvrIpValue.split('.').every((part) => Number(part) <= 255);
+
+  const dvrValues = () => ({
+    ip: dvrIpValue,
+    port: dvrPortValue,
+    rtspPort: rtspPortValue,
+    channel: Number(dvrChannel) || 1,
+    user: String(dvrUser || ''),
+    pass: String(dvrPassword || ''),
+    serial: String(dvrSerial || '').trim(),
+  });
+
+  const testDvrPlayback = async () => {
+    if (!dvrIpValid) {
+      Alert.alert(
+        t('آدرس DVR نامعتبر'),
+        t('آدرس IP معتبر وارد کنید (مثلاً 192.168.1.64).'),
+      );
+      logError(
+        CCTV_LOG_SECTIONS.SETTINGS,
+        'تنظیمات DVR نامعتبر است',
+        'آدرس IP دوربین معتبر نیست.',
+      );
+      return;
+    }
+    if (!dvrPortValid || !rtspPortValid) {
+      Alert.alert(
+        t('پورت نامعتبر'),
+        t('هر دو پورت باید عددی بین ۱ تا ۶۵۵۳۵ باشند.'),
+      );
+      logError(
+        CCTV_LOG_SECTIONS.SETTINGS,
+        'پورت DVR نامعتبر است',
+        'پورت باید عددی بین ۱ تا ۶۵۵۳۵ باشد.',
+      );
+      return;
+    }
+
+    const values = dvrValues();
+    const timestamp = Date.now();
+    const rtspUrl = buildArchiveUrl({
+      ip: values.ip,
+      port: values.rtspPort,
+      user: values.user,
+      pass: values.pass,
+      channel: values.channel,
+      timestamp,
+      leadMinutes: 5,
+      durationMinutes: 10,
+    });
+    if (!rtspUrl) {
+      Alert.alert(t('لینک RTSP ساخته نشد'), t('زمان تراکنش یا تنظیمات DVR معتبر نیست.'));
+      logError(
+        CCTV_LOG_SECTIONS.SETTINGS,
+        'ساخت آدرس آرشیو دوربین ممکن نشد',
+        'زمان تراکنش یا تنظیمات DVR معتبر نیست.',
+      );
+      return;
+    }
+
+    saveSettings({
+      dvrIp: values.ip,
+      dvrPort: values.port,
+      rtspPort: values.rtspPort,
+      dvrChannel: values.channel,
+      dvrUser: values.user,
+      dvrPassword: values.pass,
+      dvrSerial: values.serial,
+    });
+
+    setDvrTesting(true);
+    logInfo(
+      CCTV_LOG_SECTIONS.CCTV,
+      'آزمایش اتصال به دوربین آغاز شد',
+      'درخواست آزمایشی پخش آرشیو ارسال می‌شود.',
+    );
+    try {
+      const result = await triggerTVPlayback({
+        ip: values.ip,
+        port: values.port,
+        user: values.user,
+        pass: values.pass,
+        timestamp,
+        channel: values.channel,
+        rtspPort: values.rtspPort,
+      });
+      if (result.ok) {
+        Alert.alert(t('پخش آزمایشی ارسال شد'), t('دستور پخش ارسال شد.'));
+        logInfo(
+          CCTV_LOG_SECTIONS.CCTV,
+          'اتصال به دوربین برقرار شد',
+          `پاسخ دوربین: HTTP ${result.status || 200}`,
+        );
+        return;
+      }
+      if (result.reason === 'not-configured') {
+        Alert.alert(
+          t('پخش روی تلویزیون تنظیم نشده است'),
+          t('آدرس CGI پخش تلویزیون هنوز تنظیم نشده است. لینک RTSP: {url}', {
+            url: maskRtspUrl(rtspUrl),
+          }),
+        );
+        logWarning(
+          CCTV_LOG_SECTIONS.CCTV,
+          'پخش روی تلویزیون تنظیم نشده است',
+          'آدرس CGI پخش تلویزیون خالی است.',
+        );
+        return;
+      }
+      Alert.alert(
+        t('پخش آزمایشی ناموفق'),
+        t('دستور پخش ارسال نشد ({reason}).', {
+          reason: result.reason || 'network',
+        }),
+      );
+      logError(
+        CCTV_LOG_SECTIONS.CCTV,
+        'اتصال به دوربین برقرار نشد',
+        result.reason === 'http'
+          ? `پاسخ نامعتبر از دوربین: HTTP ${result.status || 0}`
+          : 'خطای شبکه در تماس با دوربین.',
+      );
+    } finally {
+      setDvrTesting(false);
+    }
   };
 
   const digits = cardNumber.replace(/\D/g, '');
@@ -306,8 +461,42 @@ export default function SettingsScreen({ navigation }) {
       Alert.alert(t('شماره کارت نامعتبر'), t('شماره کارت باید ۱۶ رقم باشد.'));
       return;
     }
-    saveSettings({ myName: myName.trim(), cardNumber: digits, shopName: shopName.trim() });
-    Alert.alert(t('ذخیره شد'), t('اطلاعات فروشگاه با موفقیت ذخیره شد.'), [
+    if (!dvrIpValid) {
+      Alert.alert(t('آدرس DVR نامعتبر'), t('آدرس IP معتبر وارد کنید (مثلاً 192.168.1.64).'));
+      logError(
+        CCTV_LOG_SECTIONS.SETTINGS,
+        'ذخیرهٔ تنظیمات DVR انجام نشد',
+        'آدرس IP دوربین معتبر نیست.',
+      );
+      return;
+    }
+    if (!dvrPortValid) {
+      Alert.alert(t('پورت نامعتبر'), t('پورت باید عددی بین ۱ تا ۶۵۵۳۵ باشد.'));
+      logError(
+        CCTV_LOG_SECTIONS.SETTINGS,
+        'ذخیرهٔ تنظیمات DVR انجام نشد',
+        'پورت دوربین معتبر نیست.',
+      );
+      return;
+    }
+    saveSettings({
+      myName: myName.trim(),
+      cardNumber: digits,
+      shopName: shopName.trim(),
+      dvrIp: dvrIpValue,
+      dvrPort: dvrPortValue,
+      rtspPort: rtspPortValue,
+      dvrChannel: Number(dvrChannel) || 1,
+      dvrUser: String(dvrUser || ''),
+      dvrPassword: String(dvrPassword || ''),
+      dvrSerial: String(dvrSerial || '').trim(),
+    });
+    logInfo(
+      CCTV_LOG_SECTIONS.SETTINGS,
+      'تنظیمات دوربین ذخیره شد',
+      'آدرس، پورت و مشخصات دوربین در حافظهٔ محلی ذخیره شد.',
+    );
+    Alert.alert(t('ذخیره شد'), t('اطلاعات فروشگاه و دوربین با موفقیت ذخیره شد.'), [
       { text: t('باشه'), onPress: () => navigation.goBack() },
     ]);
   };
@@ -406,6 +595,107 @@ export default function SettingsScreen({ navigation }) {
                 amount: money(1250000),
                 card: digits ? groupCard(digits) : '—',
               })}
+            </Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>{t('پخش فیلم دوربین')}</Text>
+          <View style={styles.card}>
+            <Field
+              label={t('آدرس IP دوربین')}
+              icon="wifi-outline"
+              value={dvrIp}
+              onChangeText={setDvrIp}
+              placeholder="192.168.1.64"
+              keyboardType="number-pad"
+              inputStyle={styles.asciiInput}
+              hint={t('آدرس محلی DVR را وارد کنید.')}
+            />
+            <Field
+              label={t('پورت DVR')}
+              icon="server-outline"
+              value={dvrPort}
+              onChangeText={setDvrPort}
+              placeholder="34567"
+              keyboardType="number-pad"
+              maxLength={5}
+              inputStyle={styles.asciiInput}
+              hint={t('پورت کنترل DVRIP؛ پیش‌فرض ۳۴۵۶۷ است.')}
+            />
+            <Field
+              label={t('پورت RTSP')}
+              icon="videocam-outline"
+              value={rtspPort}
+              onChangeText={setRtspPort}
+              placeholder="554"
+              keyboardType="number-pad"
+              maxLength={5}
+              inputStyle={styles.asciiInput}
+              hint={t('پورت پخش تصویر؛ پیش‌فرض ۵۵۴ است.')}
+            />
+            <View style={styles.channelBlock}>
+              <Text style={styles.channelLabel}>{t('کانال دوربین')}</Text>
+              <View style={styles.channelRow}>
+                {[1, 2, 3, 4].map((item) => (
+                  <TouchableOpacity
+                    key={item}
+                    activeOpacity={0.85}
+                    style={[styles.channelBtn, Number(dvrChannel) === item && styles.channelBtnActive]}
+                    onPress={() => setDvrChannel(item)}
+                  >
+                    <Text
+                      style={[
+                        styles.channelText,
+                        Number(dvrChannel) === item && styles.channelTextActive,
+                      ]}
+                    >
+                      {t('کانال {n}', { n: item })}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.channelHint}>{t('کانال‌های ۱ تا ۴ فعال هستند.')}</Text>
+            </View>
+            <Field
+              label={t('نام کاربری DVR')}
+              icon="person-outline"
+              value={dvrUser}
+              onChangeText={setDvrUser}
+              placeholder="admin"
+              autoCapitalize="none"
+              inputStyle={styles.asciiInput}
+            />
+            <Field
+              label={t('رمز عبور DVR')}
+              icon="lock-closed-outline"
+              value={dvrPassword}
+              onChangeText={setDvrPassword}
+              placeholder={t('رمز دستگاه')}
+              secureTextEntry
+              autoCapitalize="none"
+              inputStyle={styles.asciiInput}
+            />
+            <Field
+              label={t('شماره سریال دستگاه')}
+              icon="barcode-outline"
+              value={dvrSerial}
+              onChangeText={setDvrSerial}
+              placeholder="292c3e41a34907d9"
+              autoCapitalize="none"
+              inputStyle={styles.asciiInput}
+              hint={t('برای شناسایی دستگاه در تنظیمات استفاده می‌شود.')}
+            />
+
+            <TouchableOpacity
+              activeOpacity={0.88}
+              style={[styles.smsBtn, styles.dvrTestBtn]}
+              onPress={testDvrPlayback}
+              disabled={dvrTesting}
+            >
+              <Ionicons name="play-outline" size={17} color={colors.white} />
+              <Text style={styles.smsBtnText}>{t('Test TV Playback')}</Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>
+              {t('پخش آرشیو ۵ دقیقه پیش از زمان تراکنش آغاز می‌شود.')}
             </Text>
           </View>
 
@@ -637,6 +927,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   hint: { fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 18, ...rtl },
+  asciiInput: { writingDirection: 'ltr', textAlign: 'right' },
 
   sectionTitle: {
     fontSize: 13.5,
@@ -672,6 +963,24 @@ const styles = StyleSheet.create({
   langText: { fontSize: 13.5, fontWeight: '800', color: colors.textSoft },
   langTextActive: { color: colors.white },
   langHint: { fontSize: 11, color: colors.muted, marginTop: 6, marginBottom: 2, ...rtl },
+  channelBlock: { marginTop: 4, marginBottom: 6 },
+  channelLabel: { fontSize: 12, fontWeight: '800', color: colors.text, marginBottom: 8, ...rtl },
+  channelRow: { flexDirection: 'row-reverse' },
+  channelBtn: {
+    flex: 1,
+    height: 38,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  channelBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  channelText: { fontSize: 12, fontWeight: '700', color: colors.textSoft },
+  channelTextActive: { color: colors.white },
+  channelHint: { fontSize: 10.5, color: colors.muted, marginTop: 6, ...rtl },
 
   previewCard: {
     backgroundColor: colors.primarySoft,
@@ -729,6 +1038,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   smsBtnOff: { backgroundColor: colors.redSoft },
+  dvrTestBtn: { backgroundColor: colors.primary },
   smsBtnText: { color: colors.white, fontSize: 13.5, fontWeight: '800', marginRight: 6 },
   smsPending: {
     flexDirection: 'row-reverse',

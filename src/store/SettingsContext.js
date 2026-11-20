@@ -1,4 +1,5 @@
-// Shop settings used by the reminder message (my name, card number, shop name).
+// Shop settings used by the reminder message (my name, card number, shop name)
+// plus locally stored CCTV/DVR connection settings.
 import React, {
   createContext,
   useCallback,
@@ -19,6 +20,17 @@ const EMPTY = {
   // Phone numbers whose bank SMS the shop wants the app to ignore completely.
   // Empty by default: every sender is processed until the owner adds one.
   excludedSmsSenders: [],
+  // Local CCTV/DVR archive settings. All values stay ASCII: IP is a plain
+  // string, port is digits-only, username/password/serial are stored as typed.
+  dvrIp: '',
+  // Port 34567 is the DVRIP control port; archive video goes to RTSP 554.
+  dvrPort: '34567',
+  rtspPort: '554',
+  // Cameras 1-4 are active on the shop DVR (channels are 1-based over RTSP).
+  dvrChannel: 1,
+  dvrUser: 'admin',
+  dvrPassword: '',
+  dvrSerial: '292c3e41a34907d9',
 };
 
 const SettingsContext = createContext(null);
@@ -37,6 +49,17 @@ function normalize(raw) {
     excludedSmsSenders: Array.isArray(raw?.excludedSmsSenders)
       ? [...new Set(raw.excludedSmsSenders.map((n) => String(n || '').replace(/\D/g, '')).filter(Boolean))]
       : [],
+    dvrIp: String(raw?.dvrIp || '').trim(),
+    dvrPort: String(raw?.dvrPort || EMPTY.dvrPort).replace(/\D/g, '').slice(0, 5) || EMPTY.dvrPort,
+    rtspPort: String(raw?.rtspPort || EMPTY.rtspPort).replace(/\D/g, '').slice(0, 5) || EMPTY.rtspPort,
+    dvrChannel: (() => {
+      const n = Number(raw?.dvrChannel);
+      if (!Number.isFinite(n) || n < 1) return EMPTY.dvrChannel;
+      return Math.min(4, Math.trunc(n));
+    })(),
+    dvrUser: String(raw?.dvrUser || EMPTY.dvrUser).trim() || EMPTY.dvrUser,
+    dvrPassword: String(raw?.dvrPassword || ''),
+    dvrSerial: String(raw?.dvrSerial || EMPTY.dvrSerial).trim() || EMPTY.dvrSerial,
   };
 }
 

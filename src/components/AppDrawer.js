@@ -150,6 +150,11 @@ export default function AppDrawer({ navigation }) {
         badge={pending.length > 0 ? pending.length : null}
         onPress={() => go('SmsImport')}
       />
+      <MenuItem
+        icon="bug-outline"
+        label={t('گزارش و عیب‌یابی دوربین')}
+        onPress={() => go('CctvDiagnostics')}
+      />
 
       <View style={styles.divider} />
 

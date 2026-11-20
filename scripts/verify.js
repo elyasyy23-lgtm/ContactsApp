@@ -34,7 +34,7 @@ const walk = (dir) =>
 const sources = [
   'App.js',
   'index.js',
-  'modules/sms-reader/index.js',
+  ...walk(path.join(ROOT, 'modules')),
   ...walk(path.join(ROOT, 'src')),
 ].map((f) => path.resolve(ROOT, f));
 
@@ -115,6 +115,8 @@ const backup = require(path.join(srcDir, 'utils/backup.js'));
 const reminderUi = require(path.join(srcDir, 'utils/reminderUi.js'));
 const buildInfo = require(path.join(srcDir, 'buildInfo.js'));
 const updateCheck = require(path.join(srcDir, 'utils/updateCheck.js'));
+const rtsp = require(path.join(srcDir, 'utils/rtsp.js'));
+const tvPlayback = require(path.join(srcDir, 'utils/tvPlayback.js'));
 
 try {
   assert.strictEqual(fmt.group(1234567), '1,234,567', 'group() stays Latin');
@@ -517,6 +519,314 @@ try {
   assert.ok(
     fs.readFileSync(path.join(ROOT, 'App.js'), 'utf8').includes('<UpdateNotice />'),
     'the update notice is mounted in App.js',
+  );
+
+  // ── CCTV archive playback (v1.6 WIP) ──────────────────────────────────────
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const localStamp = (v) => {
+    const d = new Date(v);
+    return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}T${pad2(d.getHours())}${pad2(
+      d.getMinutes(),
+    )}${pad2(d.getSeconds())}`;
+  };
+  const dahuaStamp = (v) => {
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/.exec(localStamp(v));
+    return `${m[1]}_${m[2]}_${m[3]}_${m[4]}_${m[5]}_${m[6]}`;
+  };
+  assert.strictEqual(rtsp.DEFAULT_ARCHIVE_LEAD_MINUTES, 5, 'archive starts 5 minutes early');
+  assert.strictEqual(
+    rtsp.DEFAULT_ARCHIVE_TAIL_MINUTES,
+    5,
+    'archive ends 5 minutes after the transaction',
+  );
+  assert.strictEqual(rtsp.DEFAULT_ARCHIVE_DURATION_MINUTES, 10, 'archive duration is configurable');
+  assert.strictEqual(
+    rtsp.DEFAULT_ARCHIVE_DURATION_MINUTES,
+    rtsp.DEFAULT_ARCHIVE_LEAD_MINUTES + rtsp.DEFAULT_ARCHIVE_TAIL_MINUTES,
+    'the clip span is exactly lead + tail (five minutes either side)',
+  );
+  assert.strictEqual(rtsp.DEFAULT_RTSP_PORT, '554', 'video lives on the RTSP port');
+  assert.strictEqual(rtsp.DEFAULT_DVRIP_PORT, '34567', 'control lives on the DVRIP port');
+  assert.strictEqual(rtsp.DEFAULT_CHANNEL_COUNT, 4, 'four cameras are active on the shop DVR');
+  assert.strictEqual(rtsp.toDvrStamp('2026-11-19T12:34:56Z'), localStamp('2026-11-19T12:34:56Z'), 'archive stamps use the DVR local clock');
+  assert.strictEqual(rtsp.toDvrStamp('2026-11-19T12:34:56Z', { utc: true }), '20261119T123456Z', 'UTC mode stays available');
+  assert.strictEqual(rtsp.toDahuaStamp('2026-11-19T12:34:56Z'), dahuaStamp('2026-11-19T12:34:56Z'), 'Dahua stamps use underscores');
+  assert.strictEqual(rtsp.toDvrStamp('not-a-date'), null, 'bad timestamps stay rejected');
+  assert.strictEqual(
+    rtsp.transactionTimestamp({ createdAt: '2026-11-19T12:34:56Z' }),
+    '2026-11-19T12:34:56Z',
+    'the exact transaction timestamp is preserved',
+  );
+  assert.strictEqual(
+    rtsp.transactionTimestamp({ createdAt: '2026-11-18T08:00:00Z' }),
+    '2026-11-18T08:00:00Z',
+    'older transactions keep their own instant',
+  );
+  assert.strictEqual(rtsp.transactionTimestamp({ createdAt: null }), null, 'missing transaction time is rejected');
+  assert.strictEqual(rtsp.transactionTimestamp({ createdAt: 'bad' }), null, 'invalid transaction time is rejected');
+
+  const cctvTx = '2026-11-19T12:34:56Z';
+  const cctvWindow = rtsp.archiveWindow({ timestamp: cctvTx, now: 0 });
+  assert.strictEqual(cctvWindow.start, Date.parse('2026-11-19T12:29:56Z'));
+  assert.strictEqual(cctvWindow.end, Date.parse('2026-11-19T12:39:56Z'));
+  assert.strictEqual(cctvWindow.startTime, localStamp('2026-11-19T12:29:56Z'));
+  assert.strictEqual(cctvWindow.endTime, localStamp('2026-11-19T12:39:56Z'));
+  assert.strictEqual(cctvWindow.startTimeUtc, '20261119T122956Z');
+  assert.strictEqual(cctvWindow.endTimeUtc, '20261119T123956Z');
+  assert.ok(!cctvWindow.startTime.includes('Z'), 'a local stamp never carries Z');
+  assert.strictEqual(cctvWindow.leadMinutes, 5, 'the window reports its five-minute lead');
+  assert.strictEqual(cctvWindow.tailMinutes, 5, 'the window reports its five-minute tail');
+  assert.strictEqual(
+    Date.parse(cctvTx) - cctvWindow.start,
+    5 * 60 * 1000,
+    'the clip starts exactly five minutes before the transaction',
+  );
+  assert.strictEqual(
+    cctvWindow.end - Date.parse(cctvTx),
+    5 * 60 * 1000,
+    'the clip ends exactly five minutes after the transaction',
+  );
+  const explicitTail = rtsp.archiveWindow({ timestamp: cctvTx, leadMinutes: 5, tailMinutes: 5, now: 0 });
+  assert.deepStrictEqual(
+    [explicitTail.start, explicitTail.end],
+    [cctvWindow.start, cctvWindow.end],
+    'the explicit lead/tail form matches the default window',
+  );
+
+  const cctvOldWindow = rtsp.archiveWindow({ timestamp: '2026-11-18T08:00:00Z', now: 0 });
+  assert.strictEqual(cctvOldWindow.startTime, localStamp('2026-11-18T07:55:00Z'));
+  assert.strictEqual(cctvOldWindow.startTimeUtc, '20261118T075500Z');
+  assert.notStrictEqual(cctvOldWindow.start, cctvWindow.start, 'different transactions stay independent');
+
+  const cctvUrl = rtsp.buildArchiveUrl({
+    ip: '192.168.1.64',
+    port: '554',
+    user: 'ad min',
+    pass: 'p@ss',
+    timestamp: cctvTx,
+    now: 0,
+  });
+  assert.strictEqual(
+    cctvUrl,
+    `rtsp://ad%20min:p%40ss@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0&starttime=${localStamp(
+      '2026-11-19T12:29:56Z',
+    )}&endtime=${localStamp('2026-11-19T12:39:56Z')}`,
+    'the archive URL uses the RTSP port and the DVR local clock',
+  );
+  assert.ok(!cctvUrl.includes('Z'), 'the default archive URL has no UTC marker');
+
+  const cctvUtcUrl = rtsp.buildArchiveUrl({
+    ip: '192.168.1.64',
+    port: '554',
+    user: 'ad min',
+    pass: 'p@ss',
+    channel: 2,
+    timeMode: 'utc',
+    timestamp: cctvTx,
+    now: 0,
+  });
+  assert.ok(cctvUtcUrl.includes('channel=2'), 'the selected channel is used');
+  assert.ok(cctvUtcUrl.endsWith('endtime=20261119T123956Z'), 'UTC mode keeps the Z form');
+
+  assert.strictEqual(
+    rtsp.buildLiveUrl({ ip: '192.168.1.64', port: '554', user: 'admin', pass: 'p@ss', channel: 2 }),
+    'rtsp://192.168.1.64:554/user=admin&password=p%40ss&channel=2&stream=0.sdp?real_stream',
+    'the Xiongmai native live URL is exact',
+  );
+  assert.strictEqual(
+    rtsp.buildLiveUrl({ ip: '192.168.1.64', port: '554', user: 'admin', pass: 'p@ss', channel: 2, style: 'dahua' }),
+    'rtsp://admin:p%40ss@192.168.1.64:554/cam/realmonitor?channel=2&subtype=0',
+    'the Dahua-compatible live URL is exact',
+  );
+
+  const candidates = rtsp.buildPlaybackCandidates({
+    ip: '192.168.1.64',
+    rtspPort: '554',
+    user: 'admin',
+    pass: 'p',
+    channel: 2,
+    timestamp: cctvTx,
+    now: 0,
+  });
+  assert.deepStrictEqual(
+    candidates.map((c) => c.key),
+    ['archive-xm-path', 'archive-local', 'archive-utc', 'playback-local', 'live-xm'],
+    'playback candidates are ordered best-guess first',
+  );
+  assert.ok(candidates.every((c) => c.url.startsWith('rtsp://')), 'every candidate is an RTSP URL');
+  assert.ok(candidates[0].url.includes('channel=2'), 'candidates honour the channel');
+  assert.ok(
+    /\/user=admin&password=p&channel=2&stream=0\.sdp\?real_stream&starttime=/.test(candidates[0].url),
+    'the primary archive candidate carries the password in the PATH (no VLC prompt)',
+  );
+  assert.ok(!candidates[0].url.includes('admin:p'), 'the primary archive candidate has no userinfo');
+  assert.ok(candidates[3].url.includes('/cam/playback?channel=2'), 'the Dahua playback path is tried');
+  assert.ok(/starttime=\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}/.test(candidates[3].url), 'playback uses underscore stamps');
+
+  assert.strictEqual(rtsp.rtspPortOf({}), '554', 'RTSP defaults to 554');
+  assert.strictEqual(rtsp.rtspPortOf({ rtspPort: '8554' }), '8554', 'a custom RTSP port is used');
+  assert.strictEqual(rtsp.dvripPortOf({}), '34567', 'DVRIP defaults to 34567');
+  assert.strictEqual(rtsp.dvripPortOf({ dvrPort: '34286' }), '34286', 'a moved DVRIP port is used');
+  assert.strictEqual(rtsp.channelOf({ dvrChannel: 3 }), 3, 'the channel is configurable');
+  assert.strictEqual(rtsp.channelOf({ dvrChannel: 99 }), 4, 'the channel is clamped to 4');
+  assert.strictEqual(rtsp.channelOf({}), 1, 'channel 1 is the default');
+
+  const settingsSource = fs.readFileSync(path.join(ROOT, 'src/store/SettingsContext.js'), 'utf8');
+  assert.ok(settingsSource.includes("rtspPort: '554'"), 'the store keeps RTSP separate from DVRIP');
+  assert.ok(settingsSource.includes('dvrChannel'), 'the store keeps the camera channel');
+
+  assert.strictEqual(
+    rtsp.maskRtspUrl(cctvUrl),
+    `rtsp://ad%20min:***@192.168.1.64:554/cam/realmonitor?channel=1&subtype=0&starttime=${localStamp(
+      '2026-11-19T12:29:56Z',
+    )}&endtime=${localStamp('2026-11-19T12:39:56Z')}`,
+    'the password is never shown',
+  );
+  assert.strictEqual(
+    rtsp.maskRtspUrl('rtsp://192.168.1.64:554/user=admin&password=secret&channel=1&stream=0.sdp?real_stream'),
+    'rtsp://192.168.1.64:554/user=admin&password=***&channel=1&stream=0.sdp?real_stream',
+    'a query-string password is masked too',
+  );
+  assert.strictEqual(rtsp.buildArchiveUrl({ ip: '', timestamp: cctvTx }), null, 'no IP → no URL');
+
+  const tvNotConfigured = tvPlayback.buildTvPlaybackRequest({
+    ip: '192.168.1.64',
+    timestamp: cctvTx,
+    now: 0,
+  });
+  assert.deepStrictEqual(tvNotConfigured, { ok: false, reason: 'not-configured' });
+
+  const tvRequest = tvPlayback.buildTvPlaybackRequest({
+    ip: '192.168.1.64',
+    port: '80',
+    user: 'admin',
+    pass: 'pass',
+    timestamp: cctvTx,
+    endpoint: 'http://[IP]:[Port]/cgi-bin/tv?rtsp=[RtspUrl]',
+    method: 'POST',
+    payloadTemplate: '{"rtsp":"[RtspUrl]"}',
+    now: 0,
+  });
+  assert.strictEqual(tvRequest.ok, true, 'a configured CGI builds a request');
+  assert.strictEqual(tvRequest.method, 'POST');
+  assert.strictEqual(tvRequest.headers['Content-Type'], 'application/json');
+  assert.ok(tvRequest.url.includes('rtsp%3A%2F%2F'), 'the archive URL is URL-encoded');
+  assert.ok(tvRequest.body.includes('rtsp%3A%2F%2F'), 'the payload carries the encoded archive URL');
+  assert.strictEqual(
+    tvPlayback.buildTvPlaybackRequest({ ip: '192.168.1.64', timestamp: 'bad', endpoint: 'http://tv', now: 0 }).reason,
+    'bad-timestamp',
+  );
+
+  let tvSeen = null;
+  const tvPromise = tvPlayback.triggerTVPlayback(
+    {
+      ip: '192.168.1.64',
+      timestamp: cctvTx,
+      endpoint: 'http://[IP]/tv?rtsp=[RtspUrl]',
+      now: 0,
+    },
+    {
+      fetcher: async (url, init) => {
+        tvSeen = { url, init };
+        return { ok: true, status: 200 };
+      },
+    },
+  );
+  assert.ok(tvSeen, 'triggerTVPlayback fires the configured fetcher');
+  assert.strictEqual(tvSeen.init.method, 'GET');
+  assert.strictEqual(tvSeen.init.body, null);
+  tvPromise.catch(() => {});
+
+  assert.strictEqual(appJson.expo.android.usesCleartextTraffic, true, 'local DVR HTTP is allowed');
+  const cctvSettingsSrc = fs.readFileSync(
+    path.join(srcDir, 'store/SettingsContext.js'),
+    'utf8',
+  );
+  for (const dvrKey of ['dvrIp', 'dvrPort', 'dvrUser', 'dvrPassword', 'dvrSerial']) {
+    assert.ok(cctvSettingsSrc.includes(dvrKey), `${dvrKey} is persisted in settings`);
+  }
+  const cctvSettingsScreen = fs.readFileSync(
+    path.join(srcDir, 'screens/SettingsScreen.js'),
+    'utf8',
+  );
+  assert.ok(cctvSettingsScreen.includes('Test TV Playback'), 'the exact TV test label is present');
+  assert.ok(cctvSettingsScreen.includes('buildArchiveUrl'), 'the test builds an archive URL');
+  assert.ok(cctvSettingsScreen.includes('triggerTVPlayback'), 'the test triggers TV playback');
+
+  const cctvAppSrc = fs.readFileSync(path.join(ROOT, 'App.js'), 'utf8');
+  assert.ok(cctvAppSrc.includes('CctvPlayerScreen'), 'the player screen is imported');
+  assert.ok(cctvAppSrc.includes('name="CctvPlayer"'), 'the player route is registered');
+
+  const cctvDetailSrc = fs.readFileSync(
+    path.join(srcDir, 'screens/CustomerDetailScreen.js'),
+    'utf8',
+  );
+  assert.ok(cctvDetailSrc.includes('پخش فیلم دوربین'), 'the exact camera label is present');
+  assert.ok(cctvDetailSrc.includes('transactionTimestamp(item)'), 'each row passes its exact timestamp');
+  assert.ok(cctvDetailSrc.includes("navigation.navigate('CctvPlayer'"), 'the camera icon navigates');
+  assert.ok(cctvDetailSrc.includes('styles.transactionCctv'), 'the camera icon has its own RTL-safe style');
+  assert.ok(
+    cctvDetailSrc.includes('const isDebt = item.type === TRANSACTION.CREDIT'),
+    'the camera icon is bound to DEBT rows only',
+  );
+  assert.ok(cctvDetailSrc.includes('{isDebt ? ('), 'the camera icon renders only for a debt row');
+  assert.ok(
+    /isDebt \? \(\s*<TouchableOpacity[\s\S]{0,500}?transactionCctv/.test(cctvDetailSrc),
+    'the debt-only guard wraps the camera control itself',
+  );
+  assert.ok(cctvDetailSrc.includes('shareTransaction(item)'), 'receipt sharing is preserved as a sibling control');
+  assert.ok(!cctvDetailSrc.includes('openCctvPlayer'), 'the obsolete customer-level handler is removed');
+  assert.ok(!cctvDetailSrc.includes('styles.cctvBtn'), 'the obsolete customer-level style is removed');
+
+  const cctvPlayerSrc = fs.readFileSync(
+    path.join(srcDir, 'screens/CctvPlayerScreen.js'),
+    'utf8',
+  );
+  assert.ok(cctvPlayerSrc.includes('لینک RTSP آرشیو'), 'the player shows the archive link');
+  assert.ok(cctvPlayerSrc.includes('maskRtspUrl'), 'the player masks the password');
+  assert.ok(cctvPlayerSrc.includes('لینک RTSP کپی نشد.'), 'copy failure uses the honest message');
+  assert.ok(!cctvPlayerSrc.includes('expo-video'), 'the Expo Go screen stays native-video free');
+
+  const cctvDictSrc = fs.readFileSync(path.join(srcDir, 'i18n/dict.js'), 'utf8');
+  assert.ok(cctvDictSrc.includes("'پخش فیلم دوربین': 'Play camera video'"), 'the exact label is translated');
+  assert.ok(
+    cctvDictSrc.includes("'زمان تراکنش نامعتبر': 'Invalid transaction time'"),
+    'the invalid-transaction-time title is translated',
+  );
+  assert.ok(
+    cctvDictSrc.includes('زمان این تراکنش نامعتبر است؛ پخش آرشیو ممکن نیست.'),
+    'the invalid-transaction-time message is translated',
+  );
+  assert.ok(cctvDictSrc.includes("'آرشیو دوربین': 'Camera archive'"), 'the player title is translated');
+
+  // Every string a CCTV screen passes to t() must exist in the dictionary — an
+  // untranslated literal silently falls back to Persian in English mode.
+  const I18N_EXEMPT = new Set(['Test TV Playback']); // owner asked for this exact label
+  const cctvScreens = [
+    'screens/CctvPlayerScreen.js',
+    'screens/SettingsScreen.js',
+    'screens/CctvDiagnosticsScreen.js',
+  ];
+  const missingKeys = [];
+  for (const rel of cctvScreens) {
+    const src = fs.readFileSync(path.join(srcDir, rel), 'utf8');
+    const re = /\bt\(\s*'((?:[^'\\]|\\.)*)'/g;
+    let match;
+    while ((match = re.exec(src))) {
+      const key = match[1].replace(/\\'/g, "'");
+      if (I18N_EXEMPT.has(key)) continue;
+      if (!cctvDictSrc.includes(`'${key}'`)) missingKeys.push(`${rel}: ${key}`);
+    }
+  }
+  assert.deepStrictEqual(missingKeys, [], 'every CCTV screen string is translated');
+
+  assert.ok(cctvPlayerSrc.includes('buildPlaybackCandidates'), 'the player offers the RTSP fallbacks');
+  assert.ok(cctvPlayerSrc.includes('rtspPortOf'), 'the player uses the RTSP port, not the DVRIP port');
+  assert.ok(cctvSettingsScreen.includes('rtspPort'), 'settings expose the RTSP port');
+  assert.ok(cctvSettingsScreen.includes('dvrChannel'), 'settings expose the camera channel');
+  assert.ok(
+    cctvSettingsScreen.includes('port: values.rtspPort'),
+    'the test URL uses the RTSP port for video',
   );
 
   // The exact owner scenario, one step at a time: save credit → send;
