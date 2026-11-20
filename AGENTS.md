@@ -778,3 +778,38 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
 - OPEN: on-device test not done. Unknown whether this firmware honours `starttime/endtime` on the XM
   path URL (device question) — the candidate list exists to settle it by pressing ▶ in VLC.
   Release gate still CLOSED: no bump/push/tag/CI/APK.
+
+## CCTV debt-clip feature (2026-11-20) — test APK built, release STILL CLOSED
+- OWNER ORDER (2026-11-20): the camera icon is for DEBT transactions only — a payment has no
+  goods hand-over to review. Implemented in `CustomerDetailScreen.js` `renderTransaction`:
+  `const isDebt = item.type === TRANSACTION.CREDIT;` and the icon is `{isDebt ? (…) : null}`.
+  Payments / purchases / other types show only the receipt share. (TRANSACTION.CREDIT = «ثبت بدهی»,
+  TRANSACTION.PAYMENT = «دریافت پرداخت» — CREDIT is the debt.)
+- WINDOW FIXED BY THE OWNER: exactly **5 minutes before** the transaction and **5 minutes after**.
+  `src/utils/rtsp.js` gained `DEFAULT_ARCHIVE_TAIL_MINUTES = 5`; `DEFAULT_ARCHIVE_DURATION_MINUTES`
+  = LEAD + TAIL = 10 and is still the default whole span, so `archiveWindow()` accepts either an
+  explicit `tailMinutes` or a `durationMinutes`. Return value now also carries `leadMinutes` /
+  `tailMinutes` for UI + logging. GOTCHA that cost one verify cycle: do NOT drop the
+  `durationMinutes = DEFAULT_ARCHIVE_DURATION_MINUTES` default while adding `tailMinutes` — the
+  default window then falls back to 1 minute and the end lands 5 min early (verify caught it).
+- NATIVE CLIP IS THE WINDOW, NOT THE WHOLE FILE (`DvripClient.kt`): `DEFAULT_FPS = 25`,
+  `parseStamp(value): Long?`, `framesFor(ms, fps)`; `claim()`/`playbackBody()` now take the
+  `startTime` stamp; `segmentsFor(files, startMs, endMs)` picks every recording file the window
+  intersects (a window can straddle two files → both are played back to back);
+  `downloadRange(file, target, startMs, frameBudget, byteLimit, onProgress)` stops on the frame
+  budget and falls back to a byte cap when the firmware emits no Annex-B slice headers
+  (`countSlices()` scans NAL 1/5 with a `scanTail` carry-over across chunks).
+- `CctvPlaybackModule.kt` `playArchive` thread: one query client for the file list (logged out and
+  closed before downloading — the DVR allows one session per pair), then a FRESH `DvripClient` per
+  segment appending into ONE `cacheDir/cctv/clip-*.h264`; progress + stage events carry
+  `frames`/`framesTotal`; resolve payload = `ok,path,file,bytes,begin,end,segments,frames,
+  framesTotal,fps,startMs,endMs`; empty result deletes the file and rejects.
+- `scripts/verify.js` asserts all of it (tail constant, lead+tail duration, ±5 min offsets, explicit
+  tail form, the `isDebt` guard wrapping the icon) → `npm run verify` = **55/55 ALL CHECKS PASSED**.
+  Metro 8082 restarted with `--clear` (cached bundle served stale code before the restart — always
+  restart after source edits) → warm bundle 10,152,473 B with `isDebt = item.type === …CREDIT`
+  (babel rewrites the import, so grep for `TRANSACTION.CREDIT`, not the literal source string).
+- COMMITTED `0b7dd32` on branch **feat/cctv-debt-clip** (pushed, NOT main, NOT tagged) → CI run
+  **44790900851**. TEST APK ONLY: the artifact (`HesabYar-v1.5.0-12`) is downloaded by
+  `~/watch-hesabyar-artifact.sh <runId> [name]` → `/storage/emulated/0/Download/HesabYar-cctv-test.apk`;
+  no release, no version.json change, no site change. Release gate from 2026-11-20 still CLOSED.

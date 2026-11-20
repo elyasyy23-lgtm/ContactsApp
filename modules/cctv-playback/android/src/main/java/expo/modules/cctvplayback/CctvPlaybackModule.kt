@@ -72,22 +72,22 @@ class CctvPlaybackModule : Module() {
       val clipEnd = asLong(options["endMs"])
 
       if (ip.isEmpty()) {
-        promise.reject("E_CONFIG", "DVR address is empty")
+        promise.reject("E_CONFIG", "DVR address is empty", null)
         return@AsyncFunction
       }
       if (port !in 1..65535) {
-        promise.reject("E_CONFIG", "DVR port is invalid")
+        promise.reject("E_CONFIG", "DVR port is invalid", null)
         return@AsyncFunction
       }
       if (clipStart == null) {
-        promise.reject("E_CONFIG", "Transaction time is invalid")
+        promise.reject("E_CONFIG", "Transaction time is invalid", null)
         return@AsyncFunction
       }
 
       val endMs = clipEnd ?: (clipStart + 10 * 60_000L)
       val context = appContext.reactContext
       if (context == null) {
-        promise.reject("E_CONTEXT", "App context is unavailable")
+        promise.reject("E_CONTEXT", "App context is unavailable", null)
         return@AsyncFunction
       }
 
@@ -245,7 +245,11 @@ class CctvPlaybackModule : Module() {
             "onCctvEvent",
             mapOf("type" to "error", "message" to message, "cancelled" to cancelRequested)
           )
-          promise.reject(if (cancelRequested) "E_CANCELLED" else "E_DVRIP", message)
+          promise.reject(
+            if (cancelRequested) "E_CANCELLED" else "E_DVRIP",
+            message,
+            null
+          )
         } finally {
           val leftover = queryClient
           activeClient = null
@@ -304,7 +308,11 @@ class CctvPlaybackModule : Module() {
         context.startActivity(anyPlayer)
         promise.resolve(true)
       } catch (error: Exception) {
-        promise.reject("E_VLC_OPEN", error.message ?: "could not open the video player")
+        promise.reject(
+          "E_VLC_OPEN",
+          error.message ?: "could not open the video player",
+          null
+        )
       }
     }
   }
