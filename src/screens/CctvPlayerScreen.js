@@ -35,27 +35,33 @@ import {
   isAvailable as cctvAvailable,
   playArchive,
   probeRtsp,
+  stopArchive,
 } from '../../modules/cctv-playback';
 import { openInVlc, openLocalFileInVlc } from '../utils/vlc';
 
 /**
  * CCTV archive screen. VLC is the video player.
  *
- * Owner rule: archive playback must work like the live stream — NO password.
+ * Owner rule: archive playback must show the RECORDED window, not the live feed.
  *
- * 1. Primary path: a credential-free RTSP archive URL on the RTSP port (554,
- *    never the DVRIP control port 34567), handed straight to VLC. It carries no
- *    userinfo and no `password=` value, so VLC can never raise its own
- *    "RTSP authentication" dialog; the DVR answers as a guest.
- * 2. Optional path (only when a DVR password is stored): the `cctv-playback`
- *    module logs in over DVRIP, downloads the clip and VLC opens a LOCAL file,
- *    which also needs no credentials.
- * 3. Expo Go: no DVRIP socket, so only path 1 is possible; the screen says so
- *    plainly instead of pretending.
+ * 1. PRIMARY (guaranteed): the `cctv-playback` module logs in over DVRIP on port
+ *    34567, asks the device which files cover the requested window, downloads
+ *    exactly that range and VLC opens a LOCAL file. This is the only path that
+ *    cannot degrade to live video, because the DVR is explicitly asked for
+ *    archived files. It needs the camera password stored in Settings.
+ * 2. Advanced/experimental: RTSP archive URLs (port 554). Measured on this
+ *    Xiongmai firmware: the RTSP server answers 2xx and then streams the LIVE
+ *    picture while ignoring `starttime`/`endtime`, so these shapes can never be
+ *    the primary action — they are kept only for a different firmware/model.
+ * 3. Expo Go has no DVRIP socket, so the native path reports "not available"
+ *    and the screen says so plainly instead of pretending.
  */
 const CANDIDATE_LABELS = {
   'archive-guest-xm': 'آرشیو • بدون رمز (مسیر اصلی دستگاه)',
+  'archive-guest-xm-tz': 'آرشیو • بدون رمز (زمان UTC)',
   'archive-guest-xm-bare': 'آرشیو • بدون هیچ پارامتر ورود',
+  'archive-guest-dahua-playback': 'آرشیو • مسیر playback دستگاه',
+  'archive-guest-dahua-playback-utc': 'آرشیو • مسیر playback (زمان UTC)',
   'archive-guest-dahua': 'آرشیو • بدون رمز (زمان محلی)',
   'archive-guest-dahua-utc': 'آرشیو • بدون رمز (زمان UTC)',
   'archive-auth-xm': 'آرشیو • با رمز ذخیره‌شده در مسیر (بدون پنجرهٔ رمز)',
@@ -218,10 +224,13 @@ export default function CctvPlayerScreen({ navigation, route }) {
     );
   }, [candidates, hasPassword, channel, rtspPort, t, logInfo, logWarning, logError]);
 
-  // ── native archive playback (optional: needs a stored DVR password) ───────
+  // ── PRIMARY path: native DVRIP archive download (guaranteed recording) ─────
   const [playState, setPlayState] = useState('idle');
   const [playText, setPlayText] = useState('');
   const [received, setReceived] = useState(null);
+  const [stage, setStage] = useState('');
+
+  const nativeReady = cctvAvailable && hasPassword;
 
   useEffect(() => {
     const subscription = addCctvListener((event) => {
@@ -230,13 +239,24 @@ export default function CctvPlayerScreen({ navigation, route }) {
         setReceived({ bytes: Number(event.bytes) || 0, total: Number(event.total) || 0 });
         return;
       }
+      if (event.type === 'stage') {
+        const map = {
+          connecting: t('اتصال به دستگاه...'),
+          login: t('ورود به دستگاه...'),
+          query: t('جستجوی ضبط همان بازه...'),
+          download: t('دریافت تصویر ضبط‌شده...'),
+          downloaded: t('دریافت کامل شد.'),
+        };
+        setStage(map[event.stage] || '');
+        return;
+      }
       if (event.type === 'error') {
         setReceived(null);
         return;
       }
     });
     return () => subscription.remove();
-  }, []);
+  }, [t]);
 
   const playClip = useCallback(async () => {
     if (!cctvAvailable) {
@@ -245,6 +265,20 @@ export default function CctvPlayerScreen({ navigation, route }) {
         CCTV_LOG_SECTIONS.PLAYBACK,
         'پخش داخلی آرشیو در دسترس نیست',
         'ماژول بومی در Expo Go وجود ندارد؛ فقط در نسخهٔ نصبی فعال است.',
+      );
+      return;
+    }
+    if (!hasPassword) {
+      setPlayState('error');
+      setPlayText(
+        t(
+          'برای پخش تضمینی آرشیو، رمز دوربین را در تنظیمات وارد کنید. بدون رمز، دستگاه فقط تصویر زنده می‌دهد.',
+        ),
+      );
+      logWarning(
+        CCTV_LOG_SECTIONS.PLAYBACK,
+        'پخش آرشیو آغاز نشد',
+        'رمز دوربین ذخیره نشده است.',
       );
       return;
     }
@@ -311,7 +345,14 @@ export default function CctvPlayerScreen({ navigation, route }) {
     }
     const reason = result?.reason || 'unknown';
     setPlayState('error');
-    setPlayText(t('دریافت آرشیو ناموفق بود ({reason}).', { reason }));
+    const detail = result?.message ? ` — ${result.message}` : '';
+    setPlayText(
+      t('دریافت آرشیو ناموفق بود ({reason}{detail}). پورت DVRIP فعلی: {port}', {
+        reason,
+        detail,
+        port,
+      }),
+    );
     logError(
       CCTV_LOG_SECTIONS.PLAYBACK,
       'دریافت آرشیو ناموفق بود',
@@ -319,6 +360,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
     );
   }, [
     channel,
+    hasPassword,
     settings.dvrIp,
     settings.dvrPort,
     settings.dvrUser,
@@ -330,6 +372,15 @@ export default function CctvPlayerScreen({ navigation, route }) {
     logError,
   ]);
 
+
+  const cancelClip = useCallback(async () => {
+    await stopArchive();
+    setPlayState('idle');
+    setPlayText(t('دریافت لغو شد.'));
+    setReceived(null);
+    setStage('');
+    logWarning(CCTV_LOG_SECTIONS.PLAYBACK, 'دریافت آرشیو لغو شد');
+  }, [t, logWarning]);
 
   const sendToTv = useCallback(async () => {
     if (!rtspUrl) {
@@ -407,9 +458,18 @@ export default function CctvPlayerScreen({ navigation, route }) {
     [logInfo],
   );
 
+  // Opening this screen IS the user's tap on the camera icon, so the primary
+  // archive download starts by itself when the device path is usable.
+  const autoStartedRef = useRef(false);
   useEffect(() => {
-    sendToTv();
-  }, [sendToTv]);
+    if (autoStartedRef.current) return;
+    if (!nativeReady) {
+      sendToTv();
+      return;
+    }
+    autoStartedRef.current = true;
+    playClip();
+  }, [nativeReady, playClip, sendToTv]);
 
   const copyRtsp = useCallback(async () => {
     if (!rtspUrl) return;
@@ -514,109 +574,87 @@ export default function CctvPlayerScreen({ navigation, route }) {
           ) : null}
         </View>
 
+        {/* PRIMARY: recorded footage straight from the DVR over DVRIP. This is
+            the only path that cannot fall back to the live stream. */}
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
             <Ionicons
               name={
-                guestStatus === 'done'
+                playState === 'done'
                   ? 'checkmark-circle'
-                  : guestStatus === 'error'
+                  : playState === 'error'
                     ? 'alert-circle'
-                    : 'play-circle-outline'
+                    : 'film-outline'
               }
               size={19}
               color={
-                guestStatus === 'done'
+                playState === 'done'
                   ? colors.green
-                  : guestStatus === 'error'
+                  : playState === 'error'
                     ? colors.red
                     : colors.primary
               }
             />
-            <Text style={styles.cardTitle}>{t('پخش آرشیو در VLC (بدون پنجرهٔ رمز)')}</Text>
-            {guestStatus === 'running' ? (
+            <Text style={styles.cardTitle}>{t('پخش آرشیو ضبط‌شده (تضمینی)')}</Text>
+            {playState === 'running' ? (
               <ActivityIndicator size="small" color={colors.primary} />
             ) : null}
           </View>
           <Text style={styles.cardHint}>
             {t(
-              'اول با پخش مهمان (بدون رمز) امتحان می‌شود؛ اگر دستگاه اجازه ندهد، خودکار از رمز ذخیره‌شده در آدرس استفاده می‌شود — در هر دو حالت هیچ پنجرهٔ رمزی در VLC باز نمی‌شود.',
+              'تصویر ضبط‌شدهٔ همان بازه (۵ دقیقه قبل تا ۵ دقیقه بعد از تراکنش) مستقیماً از دستگاه گرفته و پخش می‌شود؛ پخش زنده هرگز جای آن را نمی‌گیرد.',
             )}
           </Text>
-          {guestText ? <Text style={styles.cardText}>{guestText}</Text> : null}
-          <TouchableOpacity
-            style={[styles.primaryBtn, guestStatus === 'running' ? { opacity: 0.6 } : null]}
-            onPress={playGuestArchive}
-            disabled={guestStatus === 'running' || !candidates.length}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="play" size={16} color={colors.white} />
-            <Text style={styles.primaryBtnText}>{t('باز کردن آرشیو در VLC')}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {hasPassword ? (
-        <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Ionicons
-              name={
-                playState === 'done'
-                  ? 'checkmark-circle'
-                  : playState === 'error'
-                    ? 'alert-circle'
-                    : 'cloud-download-outline'
-              }
-              size={19}
-              color={
-                playState === 'done'
-                  ? colors.green
-                  : playState === 'error'
-                    ? colors.red
-                    : colors.primary
-              }
-            />
-            <Text style={styles.cardTitle}>{t('دریافت فایل آرشیو و پخش در VLC')}</Text>
-            {playState === 'running' ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : null}
-          </View>
+          {stage && playState === 'running' ? (
+            <Text style={styles.cardHint}>{stage}</Text>
+          ) : null}
           {playText ? <Text style={styles.cardText}>{playText}</Text> : null}
           {received && received.bytes > 0 ? (
             <Text style={styles.cardHint}>
               {t('دریافت شده: {mb} مگابایت', {
                 mb: (received.bytes / 1048576).toFixed(1),
               })}
-              {received.total > 0
-                ? ` • ${t('از {mb} مگابایت', {
-                    mb: (received.total / 1048576).toFixed(1),
-                  })}`
-                : ''}
             </Text>
           ) : null}
-          <TouchableOpacity
-            style={[styles.primaryBtn, playState === 'running' ? { opacity: 0.6 } : null]}
-            onPress={playClip}
-            disabled={playState === 'running'}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={playState === 'running' ? 'hourglass-outline' : 'play'}
-              size={16}
-              color={colors.white}
-            />
-            <Text style={styles.primaryBtnText}>
-              {playState === 'running' ? t('در حال دریافت...') : t('دریافت آرشیو')}
-            </Text>
-          </TouchableOpacity>
-          {playState === 'unavailable' ? (
+
+          {!cctvAvailable ? (
             <Text style={styles.cardHint}>
               {t(
-                'دریافت آرشیو فقط در نسخهٔ نصبی فعال است؛ در Expo Go از گزینه‌های پایین برای باز کردن در VLC استفاده کنید.',
+                'دریافت آرشیو از دستگاه فقط در نسخهٔ نصبی فعال است؛ در Expo Go امکان اتصال به دستگاه وجود ندارد.',
+              )}
+            </Text>
+          ) : !hasPassword ? (
+            <Text style={styles.cardHint}>
+              {t(
+                'برای پخش تضمینی آرشیو، رمز دوربین را در تنظیمات وارد کنید. بدون رمز، دستگاه فقط تصویر زنده می‌دهد.',
               )}
             </Text>
           ) : null}
+
+          <View style={styles.btnRow}>
+            <TouchableOpacity
+              style={[styles.primaryBtn, playState === 'running' ? { opacity: 0.6 } : null]}
+              onPress={playClip}
+              disabled={playState === 'running' || !nativeReady}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={playState === 'running' ? 'hourglass-outline' : 'play'}
+                size={16}
+                color={colors.white}
+              />
+              <Text style={styles.primaryBtnText}>
+                {playState === 'running' ? t('در حال دریافت...') : t('پخش آرشیو ضبط‌شده')}
+              </Text>
+            </TouchableOpacity>
+            {playState === 'running' ? (
+              <TouchableOpacity style={styles.secondaryBtn} onPress={cancelClip} activeOpacity={0.85}>
+                <Ionicons name="stop-circle-outline" size={15} color={colors.red} />
+                <Text style={styles.secondaryBtnText}>{t('لغو')}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
-        ) : null}
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
@@ -642,9 +680,11 @@ export default function CctvPlayerScreen({ navigation, route }) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t('گزینه‌های پخش')}</Text>
+          <Text style={styles.cardTitle}>{t('گزینه‌های پیشرفتهٔ RTSP')}</Text>
           <Text style={styles.cardHint}>
-            {t('اگر پخش سیاه ماند، گزینهٔ بعدی را امتحان کنید.')}
+            {t(
+              'این مسیرها فقط برای دستگاه‌هایی است که آرشیو را روی RTSP می‌دهند. روی این دستگاه اندازه‌گیری شد که همین درخواست‌ها تصویر زنده پخش می‌کنند، پس از دکمهٔ تضمینی بالا استفاده کنید.',
+            )}
           </Text>
           {candidates.map((candidate) => (
             <View key={candidate.key} style={styles.candidateRow}>
@@ -665,9 +705,20 @@ export default function CctvPlayerScreen({ navigation, route }) {
               </TouchableOpacity>
             </View>
           ))}
-          <Text style={styles.cardHint}>
-            {t('هر گزینه فقط از ضبط‌شدهٔ همان بازهٔ زمانی می‌خواند؛ هیچ‌کدام پخش زنده نیست.')}
-          </Text>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={playGuestArchive}
+            disabled={guestStatus === 'running' || !candidates.length}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="flash-outline" size={15} color={colors.primary} />
+            <Text style={styles.secondaryBtnText}>
+              {guestStatus === 'running'
+                ? t('در حال بررسی مسیرها...')
+                : t('امتحان خودکار مسیرهای RTSP')}
+            </Text>
+          </TouchableOpacity>
+          {guestText ? <Text style={styles.cardText}>{guestText}</Text> : null}
           {liveCandidates.length ? (
             <Text style={styles.cardHint}>
               {t('برای مقایسه با تصویر زنده (تشخیص مشکل شبکه) از دکمهٔ «تست پخش زنده» استفاده کنید.')}

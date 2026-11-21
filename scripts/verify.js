@@ -850,6 +850,31 @@ try {
   assert.ok(cctvPlayerSrc.includes('maskRtspUrl'), 'the player masks the password');
   assert.ok(cctvPlayerSrc.includes('لینک RTSP کپی نشد.'), 'copy failure uses the honest message');
   assert.ok(!cctvPlayerSrc.includes('expo-video'), 'the Expo Go screen stays native-video free');
+  assert.ok(
+    cctvPlayerSrc.includes('playArchive({'),
+    'the player uses the native DVRIP archive fetch',
+  );
+  assert.ok(
+    /autoStartedRef[\s\S]{0,400}playClip\(\)/.test(cctvPlayerSrc),
+    'opening the screen starts the native archive download (primary action)',
+  );
+  assert.ok(
+    cctvPlayerSrc.includes('پخش آرشیو ضبط‌شده (تضمینی)'),
+    'the primary card states that the recorded archive is guaranteed',
+  );
+  assert.ok(
+    !cctvPlayerSrc.includes('پخش آرشیو در VLC (بدون پنجرهٔ رمز)'),
+    'the RTSP shape is no longer the primary card (it played LIVE on this firmware)',
+  );
+  assert.ok(
+    cctvPlayerSrc.includes('گزینه‌های پیشرفتهٔ RTSP'),
+    'RTSP shapes are demoted to an advanced section',
+  );
+  assert.ok(
+    cctvPlayerSrc.indexOf('پخش آرشیو ضبط‌شده (تضمینی)') <
+      cctvPlayerSrc.indexOf('گزینه‌های پیشرفتهٔ RTSP'),
+    'the guaranteed native card renders above the RTSP options',
+  );
 
   const cctvDictSrc = fs.readFileSync(path.join(srcDir, 'i18n/dict.js'), 'utf8');
   assert.ok(cctvDictSrc.includes("'پخش فیلم دوربین': 'Play camera video'"), 'the exact label is translated');

@@ -1,3 +1,12 @@
+## CCTV archive URL: `real_stream` means LIVE (2026-11-21)
+- Archive URLs MUST NOT contain `real_stream` — on a Xiongmai DVR that marker makes it serve the live
+  feed and ignore `starttime`/`endtime` (owner saw today's picture for an old transaction).
+- `src/utils/rtsp.js`: archive templates are range-only; `buildPlaybackCandidates` = archive-only and
+  returns null for any URL containing `real_stream`; live URLs live in `buildLiveCandidates()` and
+  appear only behind the diagnostic «تست پخش زنده (بدون آرشیو)» button in `CctvPlayerScreen`.
+- Styles: `xm` / `xm-tz` / `xm-bare` / `dahua` / `dahua-utc` / `dahua-playback` / `dahua-playback-utc`.
+- `npm run verify` 55/55 asserts no archive candidate can carry the live marker.
+
 ## CCTV-only diagnostics scope (owner, 2026-11-19 — supersedes broad diagnostics work)
 
 - The requested diagnostics section is **CCTV/DVR only**: «گزارش و عیب‌یابی دوربین».
@@ -857,3 +866,21 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
 - REMAINING GAP (honest): with no password stored the app cannot play archive on THIS DVR. The owner
   must either (a) type the DVR/camera password once in Settings (used inside the URL → still zero VLC
   prompt), or (b) enable anonymous/guest access on the DVR itself (Settings → Network on the box).
+
+## 2026-11-21 — native DVRIP archive is now the PRIMARY playback path
+- MEASURED fact (post-install, owner test): on this Xiongmai firmware the RTSP server answers `2xx`
+  DESCRIBE and then serves the LIVE picture while IGNORING `starttime`/`endtime` — after the
+  `real_stream` fix the archive button still played live. RTSP range playback is NOT honored here.
+- THEREFORE: `CctvPlaybackModule.playArchive` (DVRIP: login → `OPFileQuery` 1440 → `OPPlayBack`/claim
+  → download H.264 to cacheDir → hand the LOCAL file to VLC) is the only guaranteed archive path and
+  is now the PRIMARY, first card on `CctvPlayerScreen.js` («پخش آرشیو ضبط‌شده (تضمینی)»). RTSP shapes
+  are demoted under «گزینه‌های پیشرفتهٔ RTSP» with an honest note that they serve live on this device;
+  live stays on its own labelled diagnostic button. `playClip()` auto-starts on mount (opening the
+  camera icon IS the tap) and requires a stored camera password (`nativeReady = cctvAvailable && hasPassword`).
+- New UI: `stage` text (اتصال/ورود/جستجو/دریافت/کامل), progress bytes, `cancelClip` (module
+  `stopArchive`). Failure message now carries `reason`, device `message` AND the current DVRIP port so
+  a wrong port is obvious (this DVR answered DVRIP on 34286 in one probe while 34567 was closed —
+  the port field in Settings is load-bearing).
+- verify.js gained ordering/regression asserts: native card exists, `playArchive({` used, auto-start
+  reaches `playClip()`, old RTSP title gone, advanced section renders BELOW the guaranteed card.
+  `npm run verify` = 55/55.
