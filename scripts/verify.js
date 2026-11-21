@@ -648,8 +648,24 @@ try {
   });
   assert.deepStrictEqual(
     candidates.map((c) => c.key),
-    ['archive-guest-xm', 'archive-guest-xm-bare', 'archive-guest-dahua', 'archive-guest-dahua-utc', 'live-guest-xm'],
-    'playback candidates are ordered best-guess first and are all password-free',
+    [
+      'archive-guest-xm',
+      'archive-guest-xm-tz',
+      'archive-guest-xm-bare',
+      'archive-guest-dahua',
+      'archive-guest-dahua-utc',
+      'archive-guest-dahua-playback',
+      'archive-guest-dahua-playback-utc',
+    ],
+    'the one-tap list holds ARCHIVE candidates only, best guess first',
+  );
+  assert.ok(
+    candidates.every((c) => c.key.startsWith('archive-')),
+    'no live-stream entry can ever reach the archive button',
+  );
+  assert.ok(
+    candidates.every((c) => !c.url.includes('real_stream')),
+    'no archive URL carries the live marker (real_stream served LIVE video — the 2026-11-20 bug)',
   );
   assert.ok(candidates.every((c) => c.url.startsWith('rtsp://')), 'every candidate is an RTSP URL');
   assert.ok(candidates.every((c) => !c.url.includes('@')), 'no candidate carries userinfo');
@@ -657,19 +673,40 @@ try {
     candidates.every((c) => !/password=[^&]+/.test(c.url)),
     'no candidate carries a password value',
   );
+  assert.ok(
+    candidates.every((c) => /starttime=/.test(c.url) && /endtime=/.test(c.url)),
+    'every archive candidate carries the transaction window',
+  );
   assert.ok(candidates[0].url.includes('channel=2'), 'candidates honour the channel');
   assert.ok(
-    /\/user=&password=&channel=2&stream=0\.sdp\?real_stream&starttime=\d{14}&endtime=\d{14}$/.test(
-      candidates[0].url,
-    ),
-    'the primary candidate uses the native path with empty credentials and Xiongmai 14-digit stamps',
+    /\/user=&password=&channel=2&stream=0\.sdp\?starttime=\d{14}&endtime=\d{14}$/.test(candidates[0].url),
+    'the primary candidate is the native archive path with empty credentials and 14-digit stamps',
   );
   assert.ok(
-    /\/cam\/realmonitor\?channel=2&subtype=0&starttime=\d{14}&endtime=\d{14}$/.test(candidates[1].url),
+    /\?starttime=\d{8}T\d{6}Z&endtime=/.test(candidates[1].url),
+    'the second candidate uses the T…Z stamp form',
+  );
+  assert.ok(
+    /\/cam\/realmonitor\?channel=2&subtype=0&starttime=\d{14}&endtime=\d{14}$/.test(candidates[2].url),
     'the bare candidate has no credential parameters at all',
   );
-  assert.ok(/starttime=\d{8}T\d{6}&endtime=/.test(candidates[2].url), 'the Dahua guest candidate uses a local T stamp');
-  assert.ok(/starttime=\d{8}T\d{6}Z&endtime=/.test(candidates[3].url), 'the UTC guest candidate keeps the Z form');
+  assert.ok(/starttime=\d{8}T\d{6}&endtime=/.test(candidates[3].url), 'the Dahua guest candidate uses a local T stamp');
+  assert.ok(/starttime=\d{8}T\d{6}Z&endtime=/.test(candidates[4].url), 'the UTC guest candidate keeps the Z form');
+  assert.ok(
+    /\/cam\/playback\?channel=2&subtype=0&starttime=\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}&endtime=/.test(
+      candidates[5].url,
+    ),
+    'the documented playback path uses underscore stamps',
+  );
+
+  // Live URLs stay in their own list, clearly separated from the archive ones.
+  const liveList = rtsp.buildLiveCandidates({ ip: '192.168.1.64', channel: 2 });
+  assert.deepStrictEqual(liveList.map((c) => c.key), ['live-guest-xm'], 'live has its own list');
+  assert.ok(liveList[0].url.includes('real_stream'), 'the LIVE URL keeps the real_stream marker');
+  assert.ok(
+    rtsp.buildPlaybackCandidates({ ip: '192.168.1.64', channel: 2 }).every((c) => !c.url.includes('real_stream')),
+    'the archive list and the live list never mix',
+  );
 
   // Guest archive URL: right port, no credentials, vendor timestamp, honoured range.
   const guestUrl = rtsp.buildGuestArchiveUrl({

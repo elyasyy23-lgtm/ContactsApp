@@ -19,6 +19,7 @@ import { useLang } from '../i18n/LanguageContext';
 import {
   archiveWindow,
   buildGuestArchiveUrl,
+  buildLiveCandidates,
   buildPlaybackCandidates,
   channelOf,
   dvripPortOf,
@@ -109,6 +110,20 @@ export default function CctvPlayerScreen({ navigation, route }) {
         timestamp,
       }),
     [settings.dvrIp, rtspPort, settings.dvrUser, settings.dvrPassword, channel, timestamp],
+  );
+
+  // Live URLs live in a SEPARATE list: they are a reachability check only, so
+  // the one-tap archive button can never fall back to the live feed.
+  const liveCandidates = useMemo(
+    () =>
+      buildLiveCandidates({
+        ip: settings.dvrIp,
+        rtspPort,
+        user: settings.dvrUser,
+        pass: settings.dvrPassword,
+        channel,
+      }),
+    [settings.dvrIp, rtspPort, settings.dvrUser, settings.dvrPassword, channel],
   );
 
   const maskedUrl = useMemo(() => maskRtspUrl(rtspUrl), [rtspUrl]);
@@ -651,8 +666,25 @@ export default function CctvPlayerScreen({ navigation, route }) {
             </View>
           ))}
           <Text style={styles.cardHint}>
-            {t('هر گزینه را می‌توانید مستقیم در VLC باز کنید تا شکل درست آرشیو پیدا شود.')}
+            {t('هر گزینه فقط از ضبط‌شدهٔ همان بازهٔ زمانی می‌خواند؛ هیچ‌کدام پخش زنده نیست.')}
           </Text>
+          {liveCandidates.length ? (
+            <Text style={styles.cardHint}>
+              {t('برای مقایسه با تصویر زنده (تشخیص مشکل شبکه) از دکمهٔ «تست پخش زنده» استفاده کنید.')}
+            </Text>
+          ) : null}
+          {liveCandidates.length ? (
+            <View style={styles.candidateRow}>
+              <Text style={styles.candidateLabel}>{t('تست پخش زنده (بدون آرشیو)')}</Text>
+              <TouchableOpacity
+                style={styles.candidateBtn}
+                onPress={() => playCandidate(liveCandidates[0])}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="radio-outline" size={16} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.card}>

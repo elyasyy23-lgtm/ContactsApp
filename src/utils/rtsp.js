@@ -45,7 +45,11 @@ export const XM_LIVE_RTSP_TEMPLATE =
 // owner kept seeing. Whether the firmware honours the range on this path is a
 // device question — but the URL shape removes the prompt either way.
 export const XM_ARCHIVE_RTSP_TEMPLATE =
-  'rtsp://[IP]:[Port]/user=[User]&password=[Pass]&channel=[Channel]&stream=[Subtype].sdp?real_stream&starttime=[StartTime]&endtime=[EndTime]';
+  'rtsp://[IP]:[Port]/user=[User]&password=[Pass]&channel=[Channel]&stream=[Subtype].sdp?starttime=[StartTime]&endtime=[EndTime]';
+
+// Same archive request with the `T…Z` stamp form some Xiongmai builds expect.
+export const XM_ARCHIVE_TZ_RTSP_TEMPLATE =
+  'rtsp://[IP]:[Port]/user=[User]&password=[Pass]&channel=[Channel]&stream=[Subtype].sdp?starttime=[StartTime]&endtime=[EndTime]';
 
 // ── GUEST (password-free) archive forms ────────────────────────────────────
 // Owner rule (2026-11-20): archive playback must behave exactly like the live
@@ -58,7 +62,7 @@ export const XM_ARCHIVE_RTSP_TEMPLATE =
 // &stream=..sdp?real_stream`) with empty credential params and a time range in
 // the vendor's own 14-digit stamp form (`YYYYMMDDhhmmss`, device-local clock).
 export const XM_GUEST_ARCHIVE_RTSP_TEMPLATE =
-  'rtsp://[IP]:[Port]/user=&password=&channel=[Channel]&stream=[Subtype].sdp?real_stream&starttime=[XmStart]&endtime=[XmEnd]';
+  'rtsp://[IP]:[Port]/user=&password=&channel=[Channel]&stream=[Subtype].sdp?starttime=[XmStart]&endtime=[XmEnd]';
 
 // Same native path with no credential parameters at all.
 export const XM_GUEST_BARE_ARCHIVE_RTSP_TEMPLATE =
@@ -67,6 +71,11 @@ export const XM_GUEST_BARE_ARCHIVE_RTSP_TEMPLATE =
 // Dahua-compatible guest range path (no userinfo component).
 export const DAHUA_GUEST_ARCHIVE_RTSP_TEMPLATE =
   'rtsp://[IP]:[Port]/cam/realmonitor?channel=[Channel]&subtype=[Subtype]&starttime=[StartTime]&endtime=[EndTime]';
+
+// Dahua NVR playback path with underscore stamps (`2026_11_19_12_29_56`) —
+// the documented playback endpoint, distinct from the live `realmonitor` path.
+export const DAHUA_PLAYBACK_GUEST_RTSP_TEMPLATE =
+  'rtsp://[IP]:[Port]/cam/playback?channel=[Channel]&subtype=[Subtype]&starttime=[StartTime]&endtime=[EndTime]';
 
 const pad = (value) => String(value).padStart(2, '0');
 
@@ -325,12 +334,19 @@ export function buildXmArchiveUrl({
 /**
  * Password-free archive URL for one transaction (the DEFAULT path).
  *
+ * CRITICAL (the 2026-11-20 "it played the LIVE stream" bug): a Xiongmai DVR
+ * serves LIVE video whenever the request carries `?real_stream`. That marker
+ * must never appear on an archive request — the archive is selected ONLY by the
+ * `starttime`/`endtime` range. Every style below is a recorded-footage request.
+ *
  * `style`:
- *   'xm'        – Xiongmai native path with EMPTY credential params, 14-digit
- *                 vendor stamps (closest to the working live URL shape).
- *   'xm-bare'   – same native path with no credential params at all.
- *   'dahua'     – `/cam/realmonitor` range with local `YYYYMMDDThhmmss`.
- *   'dahua-utc' – same with the `...Z` UTC stamp.
+ *   'xm'              – native path, empty credential params, 14-digit stamps.
+ *   'xm-tz'           – same, but `YYYYMMDDThhmmssZ` stamps.
+ *   'xm-bare'         – native path with no credential params at all.
+ *   'dahua'           – `realmonitor` range, local `YYYYMMDDThhmmss`.
+ *   'dahua-utc'       – same with the `…Z` UTC stamp.
+ *   'dahua-playback'  – the documented `/cam/playback` range, underscore stamps.
+ *   'dahua-playback-utc' – same in UTC.
  * No userinfo is ever produced, so VLC cannot raise its own login dialog.
  */
 export function buildGuestArchiveUrl({
@@ -348,30 +364,46 @@ export function buildGuestArchiveUrl({
   if (!host) return null;
   const window = archiveWindow({ timestamp, leadMinutes, durationMinutes, now });
   if (!window) return null;
-  const templates = {
-    xm: { template: XM_GUEST_ARCHIVE_RTSP_TEMPLATE, utc: false },
-    'xm-bare': { template: XM_GUEST_BARE_ARCHIVE_RTSP_TEMPLATE, utc: false },
-    dahua: { template: DAHUA_GUEST_ARCHIVE_RTSP_TEMPLATE, utc: false },
-    'dahua-utc': { template: DAHUA_GUEST_ARCHIVE_RTSP_TEMPLATE, utc: true },
+  const stamps = {
+    'xm': { start: window.startXm, end: window.endXm },
+    'xm-tz': { start: window.startTimeUtc, end: window.endTimeUtc },
+    'xm-bare': { start: window.startXm, end: window.endXm },
+    'dahua': { start: window.startTime, end: window.endTime },
+    'dahua-utc': { start: window.startTimeUtc, end: window.endTimeUtc },
+    'dahua-playback': { start: window.startDahua, end: window.endDahua },
+    'dahua-playback-utc': { start: window.startDahua, end: window.endDahua },
   };
-  const chosen = templates[style] || templates.xm;
-  const url = fillTemplate(chosen.template, {
+  const templates = {
+    'xm': XM_GUEST_ARCHIVE_RTSP_TEMPLATE,
+    'xm-tz': XM_GUEST_ARCHIVE_RTSP_TEMPLATE,
+    'xm-bare': XM_GUEST_BARE_ARCHIVE_RTSP_TEMPLATE,
+    'dahua': DAHUA_GUEST_ARCHIVE_RTSP_TEMPLATE,
+    'dahua-utc': DAHUA_GUEST_ARCHIVE_RTSP_TEMPLATE,
+    'dahua-playback': DAHUA_PLAYBACK_GUEST_RTSP_TEMPLATE,
+    'dahua-playback-utc': DAHUA_PLAYBACK_GUEST_RTSP_TEMPLATE,
+  };
+  const key = templates[style] ? style : 'xm';
+  const stamp = stamps[key];
+  const url = fillTemplate(templates[key], {
     IP: host,
     Port: safeRtspPort(port),
     Channel: String(channel),
     Subtype: String(subtype),
-    XmStart: window.startXm,
-    XmEnd: window.endXm,
-    StartTime: chosen.utc ? window.startTimeUtc : window.startTime,
-    EndTime: chosen.utc ? window.endTimeUtc : window.endTime,
+    XmStart: stamp.start,
+    XmEnd: stamp.end,
+    StartTime: stamp.start,
+    EndTime: stamp.end,
   });
-  return url.includes('[') ? null : url;
+  // An archive URL must never carry the live marker; refuse instead of lying.
+  if (url.includes('[') || url.includes('real_stream')) return null;
+  return url;
 }
 
 /**
  * Archive URL with the credentials in the PATH (`user=…&password=…`) and the
- * vendor 14-digit range — the LIVE URL shape, which plays without any VLC
- * dialog because VLC never sees a userinfo component.
+ * vendor time range. No userinfo component exists, which is what keeps VLC's
+ * own login dialog away; the archive window comes from `starttime`/`endtime`
+ * while `real_stream` (the live marker) is deliberately ABSENT.
  *
  * Used ONLY as a fallback: the shop DVR was measured answering `401` to every
  * anonymous DESCRIBE, so a password-free request alone cannot play. The caller
@@ -387,6 +419,7 @@ export function buildPathCredentialArchiveUrl({
   timestamp,
   channel = DEFAULT_ARCHIVE_CHANNEL,
   subtype = DEFAULT_ARCHIVE_SUBTYPE,
+  stampStyle = 'plain',
   leadMinutes,
   durationMinutes,
   now,
@@ -397,17 +430,20 @@ export function buildPathCredentialArchiveUrl({
   if (!secret) return null; // no stored password → no auth candidate
   const window = archiveWindow({ timestamp, leadMinutes, durationMinutes, now });
   if (!window) return null;
-  const url = fillTemplate(XM_ARCHIVE_RTSP_TEMPLATE, {
+  const template =
+    stampStyle === 'utc' ? XM_ARCHIVE_TZ_RTSP_TEMPLATE : XM_ARCHIVE_RTSP_TEMPLATE;
+  const url = fillTemplate(template, {
     IP: host,
     Port: safeRtspPort(port),
     User: encodeURIComponent(String(user || 'admin')),
     Pass: encodeURIComponent(secret),
     Channel: String(channel),
     Subtype: String(subtype),
-    StartTime: window.startXm,
-    EndTime: window.endXm,
+    StartTime: stampStyle === 'utc' ? window.startTimeUtc : window.startXm,
+    EndTime: stampStyle === 'utc' ? window.endTimeUtc : window.endXm,
   });
-  return url.includes('[') ? null : url;
+  if (url.includes('[') || url.includes('real_stream')) return null;
+  return url;
 }
 
 /**
@@ -415,6 +451,23 @@ export function buildPathCredentialArchiveUrl({
  * first. Every entry is safe to hand to VLC: none carries a password, so none
  * can trigger the "RTSP authentication" dialog. The first entry is the default
  * one-tap action; the rest let the owner settle a firmware question in a tap.
+ */
+export const ARCHIVE_STYLES = [
+  'xm',
+  'xm-tz',
+  'xm-bare',
+  'dahua',
+  'dahua-utc',
+  'dahua-playback',
+  'dahua-playback-utc',
+];
+
+/**
+ * ARCHIVE-ONLY playback candidates for one transaction, best guess first.
+ *
+ * The one-tap action uses this list exclusively: every entry requests recorded
+ * footage for the transaction window, so an accidental LIVE stream is
+ * impossible even if the DVR keeps answering.
  */
 export function buildPlaybackCandidates({
   ip,
@@ -432,32 +485,53 @@ export function buildPlaybackCandidates({
   const base = { ip, port, channel, subtype, timestamp, leadMinutes, durationMinutes, now };
   const list = [];
 
-  // 1) Guest first — works on DVRs that allow anonymous playback.
-  const order = ['xm', 'xm-bare', 'dahua', 'dahua-utc'];
-  order.forEach((style) => {
+  // 1) Guest archive shapes (no credentials anywhere in the URL).
+  ARCHIVE_STYLES.forEach((style) => {
     const url = buildGuestArchiveUrl({ ...base, style });
     if (url) list.push({ key: `archive-guest-${style}`, url });
   });
 
-  // 2) Auth fallback (password in the PATH, never userinfo → no VLC dialog).
-  const auth = buildPathCredentialArchiveUrl({ ...base, user, pass });
-  if (auth) list.push({ key: 'archive-auth-xm', url: auth });
-
-  // 3) Live stream, to tell "no archive" apart from "no network".
-  const live = buildLiveUrl({ ip, port, channel, subtype, style: 'xm' });
-  if (live) list.push({ key: 'live-guest-xm', url: live });
+  // 2) Auth archive shapes — password inside the PATH, never userinfo.
   if (String(pass || '')) {
-    const liveAuth = fillTemplate(XM_LIVE_RTSP_TEMPLATE, {
-      IP: String(ip || '').trim(),
+    const auth = buildPathCredentialArchiveUrl({ ...base, user, pass });
+    if (auth) list.push({ key: 'archive-auth-xm', url: auth });
+  }
+
+  return list;
+}
+
+/**
+ * Live-stream URLs, kept OUT of the archive list on purpose.
+ *
+ * They exist only as a manual "is the camera reachable at all?" diagnostic in
+ * the candidate card, clearly labelled as live — never reachable from the
+ * one-tap archive button.
+ */
+export function buildLiveCandidates({
+  ip,
+  rtspPort = DEFAULT_RTSP_PORT,
+  user = 'admin',
+  pass = '',
+  channel = DEFAULT_ARCHIVE_CHANNEL,
+  subtype = DEFAULT_ARCHIVE_SUBTYPE,
+} = {}) {
+  const port = safeRtspPort(rtspPort);
+  const list = [];
+  const host = String(ip || '').trim();
+  if (!host) return list;
+  const guest = buildLiveUrl({ ip: host, port, channel, subtype, style: 'xm' });
+  if (guest) list.push({ key: 'live-guest-xm', url: guest });
+  if (String(pass || '')) {
+    const auth = fillTemplate(XM_LIVE_RTSP_TEMPLATE, {
+      IP: host,
       Port: port,
       User: encodeURIComponent(String(user || 'admin')),
       Pass: encodeURIComponent(String(pass)),
       Channel: String(channel),
       Subtype: String(subtype),
     });
-    if (liveAuth && !liveAuth.includes('[')) list.push({ key: 'live-auth-xm', url: liveAuth });
+    if (auth && !auth.includes('[')) list.push({ key: 'live-auth-xm', url: auth });
   }
-
   return list;
 }
 
