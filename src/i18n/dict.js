@@ -461,6 +461,7 @@ Object.assign(en, {
   'کپی لینک ممکن نشد': 'Could not copy the link.',
   'باز کردن در پخش کننده خارجی': 'Open in an external player',
   'پخش آرشیو در VLC (بدون رمز)': 'Play the archive in VLC (no password)',
+  'پخش آرشیو در VLC (بدون پنجرهٔ رمز)': 'Play the archive in VLC (no password prompt)',
   'بدون نام کاربری و بدون رمز؛ همان مسیری که پخش زنده را باز می‌کند.':
     'No username and no password — the same path that opens the live stream.',
   'باز کردن آرشیو در VLC': 'Open the archive in VLC',

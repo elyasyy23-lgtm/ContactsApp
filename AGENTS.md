@@ -828,3 +828,32 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   Native module really shipped (R8 renames classes, so grep the STRING constants, not the class
   name): `classes.dex` contains `onCctvEvent`, `DVR address is empty`, `E_DVRIP`, `org.videolan.vlc`,
   `cctv-playback_release`.
+
+### 2026-11-20 (later) — DVR RTSP reality: auth is mandatory, VLC prompt never allowed
+- MEASURED on the shop DVR `192.168.1.139:554` (owner's own box): EVERY anonymous DESCRIBE returns
+  `RTSP/1.0 401 Unauthorized` — `/user=&password=&channel=1&stream=0.sdp?real_stream`,
+  `/user=guest&password=…`, `/cam/realmonitor?...`, `/live/ch0`, `/11`, `/0`, `/onvif-http/snapshot`.
+  So "guest playback without a password" is NOT possible on this firmware; the live stream the owner
+  uses presumably carries stored credentials.
+- Implementation now = PROBE-FIRST, so VLC can never raise its username/password dialog:
+  `CctvPlaybackModule.kt` gained `rtspProbe(url)` + `AsyncFunction("probeRtsp")` (plain socket,
+  4 s connect / 5 s read, returns `{ok,status,reason}`); `modules/cctv-playback/index.js` exports
+  `probeRtsp` (returns `{ok:false,reason:'unavailable'}` when the native module is absent, i.e. Expo Go).
+- `src/utils/rtsp.js` gained `buildPathCredentialArchiveUrl()` — password inside the PATH
+  (`user=…&password=…`, vendor 14-digit range), NEVER RTSP userinfo (userinfo is what trips VLC's
+  dialog). Returns null when no password is stored. `buildPlaybackCandidates` order is now:
+  `archive-guest-xm`, `archive-guest-xm-bare`, `archive-guest-dahua`, `archive-guest-dahua-utc`,
+  `archive-auth-xm` (only with a stored password), `live-guest-xm`, `live-auth-xm` (only with one).
+- `CctvPlayerScreen`: primary action probes candidates in order, opens the first 2xx, and on failure
+  says which case it is — guest refused (`401` + no password → «رمز دوربین را در تنظیمات وارد کنید»),
+  stored password rejected, network unreachable, or no playable path. Manual per-candidate buttons
+  probe too. Primary button disabled only when there are no candidates.
+- i18n: 9 new Persian keys translated in `src/i18n/dict.js` (verify enforces coverage).
+- `scripts/verify.js`: the old "never pass the password" assert was replaced by userinfo/credential
+  checks (no `rtsp://…@`, password stays in the path, RTSP port kept, no password ⇒ no auth candidate,
+  player must call `probeRtsp`). `npm run verify` = 55/55 ALL CHECKS PASSED.
+- Branch `feat/cctv-debt-clip`: `26084ef` (probe + fallback), pushed; CI run `44874038873` (test APK,
+  artifact only — nothing published). Watcher `~/watch-hesabyar-artifact.sh 44874038873`.
+- REMAINING GAP (honest): with no password stored the app cannot play archive on THIS DVR. The owner
+  must either (a) type the DVR/camera password once in Settings (used inside the URL → still zero VLC
+  prompt), or (b) enable anonymous/guest access on the DVR itself (Settings → Network on the box).

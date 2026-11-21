@@ -518,7 +518,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
                     : colors.primary
               }
             />
-            <Text style={styles.cardTitle}>{t('پخش آرشیو در VLC (بدون رمز)')}</Text>
+            <Text style={styles.cardTitle}>{t('پخش آرشیو در VLC (بدون پنجرهٔ رمز)')}</Text>
             {guestStatus === 'running' ? (
               <ActivityIndicator size="small" color={colors.primary} />
             ) : null}
