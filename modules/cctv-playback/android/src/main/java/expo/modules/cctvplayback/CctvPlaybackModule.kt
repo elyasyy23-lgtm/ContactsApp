@@ -56,6 +56,38 @@ class CctvPlaybackModule : Module() {
 
   private fun asText(value: Any?): String = (value as? String)?.trim() ?: ""
 
+  /**
+   * One RTSP DESCRIBE on a plain socket.
+   *
+   * Why the app needs this: the shop DVR may refuse anonymous (guest) playback
+   * with `401 Unauthorized`. Rather than letting VLC hit that 401 and raise its
+   * own username/password dialog, the app asks first and only hands VLC a URL
+   * that already answered. Nothing about the credentials is returned to JS.
+   */
+  private fun rtspProbe(url: String): Map<String, Any?> {
+    val uri = Uri.parse(url)
+    val host = uri.host ?: return mapOf("ok" to false, "status" to 0, "reason" to "bad-url")
+    val port = if (uri.port > 0) uri.port else 554
+    val socket = java.net.Socket()
+    return try {
+      socket.connect(java.net.InetSocketAddress(host, port), 4000)
+      socket.soTimeout = 5000
+      val request = "DESCRIBE $url RTSP/1.0\r\nCSeq: 1\r\n" +
+        "User-Agent: HesabYar\r\nAccept: application/sdp\r\n\r\n"
+      socket.getOutputStream().apply {
+        write(request.toByteArray())
+        flush()
+      }
+      val line = socket.getInputStream().bufferedReader().readLine() ?: ""
+      val status = Regex("RTSP/1\\.0 (\\d{3})").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+      mapOf("ok" to (status in 200..299), "status" to status, "reason" to line.trim())
+    } catch (error: Exception) {
+      mapOf("ok" to false, "status" to 0, "reason" to (error.message ?: error.javaClass.simpleName))
+    } finally {
+      try { socket.close() } catch (_: Exception) { }
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("CctvPlayback")
     Events("onCctvEvent")
@@ -261,6 +293,16 @@ class CctvPlaybackModule : Module() {
           }
         }
       }.start()
+    }
+
+    AsyncFunction("probeRtsp") { urlText: String, promise: Promise ->
+      val url = urlText.trim()
+      if (url.isEmpty()) {
+        promise.resolve(mapOf("ok" to false, "status" to 0, "reason" to "empty-url"))
+        return@AsyncFunction
+      }
+      promise.resolve(rtspProbe(url))
+      return@AsyncFunction
     }
 
     AsyncFunction("stop") {

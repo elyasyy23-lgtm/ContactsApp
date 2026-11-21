@@ -813,3 +813,18 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   **44790900851**. TEST APK ONLY: the artifact (`HesabYar-v1.5.0-12`) is downloaded by
   `~/watch-hesabyar-artifact.sh <runId> [name]` → `/storage/emulated/0/Download/HesabYar-cctv-test.apk`;
   no release, no version.json change, no site change. Release gate from 2026-11-20 still CLOSED.
+- CI cycle 1 (run 44790900851) FAILED on `:cctv-playback:compileReleaseKotlin`: `promise.reject(code,
+  message)` has no 2-arg overload in expo-modules-core (`reject(code, message, cause)` or
+  `reject(CodedException)`). All 6 call sites fixed with a `null` third argument → commit `1f1a43e`
+  → run **44794432097 SUCCESS (~7 min)**. Signatures were verified straight out of
+  `node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/{Promise,modules/Module}.kt`
+  BEFORE pushing the fix — that is the only "compiler" available on this phone; skill written:
+  `expo-local-module-kotlin-ci`.
+- TEST APK (2026-11-20, NOT published): artifact `HesabYar-v1.5.0-12` downloaded by
+  `~/watch-hesabyar-artifact.sh <runId> [name]` → `/storage/emulated/0/Download/HesabYar-cctv-test.apk`
+  **49,288,801 B**, sha256 `6b7fefa4aabe00b1307a871e0fe2b4eac0a45ed4b8e49110a0a6bee9ddc72b6d`,
+  package `com.elyasyass.ContactsApp` 1.5.0 / code 12, label حسابیار, minSdk 24 / targetSdk 36,
+  **v2-signed with the SAME template debug cert `fac61745…` → installs over 1.5.0 with data intact**.
+  Native module really shipped (R8 renames classes, so grep the STRING constants, not the class
+  name): `classes.dex` contains `onCctvEvent`, `DVR address is empty`, `E_DVRIP`, `org.videolan.vlc`,
+  `cctv-playback_release`.

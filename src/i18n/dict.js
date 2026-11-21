@@ -460,6 +460,18 @@ Object.assign(en, {
   'لینک RTSP کپی نشد.': 'The RTSP link could not be copied.',
   'کپی لینک ممکن نشد': 'Could not copy the link.',
   'باز کردن در پخش کننده خارجی': 'Open in an external player',
+  'پخش آرشیو در VLC (بدون رمز)': 'Play the archive in VLC (no password)',
+  'بدون نام کاربری و بدون رمز؛ همان مسیری که پخش زنده را باز می‌کند.':
+    'No username and no password — the same path that opens the live stream.',
+  'باز کردن آرشیو در VLC': 'Open the archive in VLC',
+  'دریافت فایل آرشیو و پخش در VLC': 'Download the archive file and play it in VLC',
+  'دریافت آرشیو': 'Download archive',
+  'آرشیو در VLC باز شد. اگر تصویر سیاه ماند، گزینهٔ بعدی را امتحان کنید.':
+    'The archive opened in VLC. If the picture stays black, try the next option.',
+  'آدرس با پورت ۵۵۴ و بدون نام کاربری و رمز ساخته می‌شود.':
+    'The address is built on port 554 with no username and no password.',
+  'اگر دستگاه به مهمان اجازهٔ پخش آرشیو بدهد این لینک بدون هیچ رمزی باز می‌شود.':
+    'If the device allows guest archive playback, this link opens with no password at all.',
   'پخش کننده RTSP نصب نیست یا لینک توسط سیستم باز نشد.':
     'No RTSP player is installed, or the system could not open the link.',
   'آرشیو دوربین': 'Camera archive',
@@ -488,6 +500,25 @@ Object.assign(en, {
     'This link is never handed to an external player, so no password prompt appears.',
 
   // ── CCTV diagnostics ────────────────────────────────────────────────────
+  'این دستگاه پخش مهمان (بدون رمز) را نمی‌پذیرد. رمز دوربین را در تنظیمات وارد کنید تا بدون هیچ پنجرهٔ رمزی پخش شود.':
+    'This DVR refuses guest playback. Enter the camera password in Settings so playback opens with no password prompt.',
+  'رمز ذخیره‌شده پذیرفته نشد. رمز دوربین را در تنظیمات بررسی کنید.':
+    'The saved password was rejected. Check the camera password in Settings.',
+  'دستگاه دوربین در شبکه پاسخ نداد. اتصال وای‌فای و آدرس دستگاه را بررسی کنید.':
+    'The camera did not answer on the network. Check Wi-Fi and the device address.',
+  'هیچ‌کدام از مسیرهای آرشیو پاسخ قابل پخش نداد.':
+    'None of the archive paths returned a playable answer.',
+  'این مسیر را دستگاه رد کرد (۴۰۱). رمز دوربین در تنظیمات لازم است.':
+    'The DVR rejected this path (401). The camera password is required in Settings.',
+  'دستگاه دوربین در شبکه پاسخ نداد.':
+    'The camera did not answer on the network.',
+  'دستگاه این مسیر آرشیو را نپذیرفت (کد {code}).':
+    'The DVR refused this archive path (code {code}).',
+  'این مسیر پخش نمی‌شود':
+    'This path will not play',
+  'اول با پخش مهمان (بدون رمز) امتحان می‌شود؛ اگر دستگاه اجازه ندهد، خودکار از رمز ذخیره‌شده در آدرس استفاده می‌شود — در هر دو حالت هیچ پنجرهٔ رمزی در VLC باز نمی‌شود.':
+    'Guest playback is tried first (no password); if the DVR refuses, the saved password is used inside the address — either way VLC never shows a password prompt.',
+
   'اطلاعات': 'Info',
   'تنظیمات دوربین': 'Camera settings',
   'خطاها': 'Errors',

@@ -2,7 +2,7 @@
 // The XMEye/Xiongmai CGI for "play on TV" is ROM/box dependent, so the endpoint
 // and payload stay configurable. No React Native imports here: verify.js tests it.
 
-import { ARCHIVE_RTSP_TEMPLATE, archiveWindow, buildArchiveUrl, fillTemplate } from './rtsp';
+import { archiveWindow, buildGuestArchiveUrl, fillTemplate } from './rtsp';
 
 export const TV_PLAYBACK_ENDPOINT = '';
 export const TV_PLAYBACK_METHOD = 'GET';
@@ -27,7 +27,6 @@ export function buildTvPlaybackRequest({
   endpoint = TV_PLAYBACK_ENDPOINT,
   method = TV_PLAYBACK_METHOD,
   payloadTemplate = TV_PLAYBACK_PAYLOAD_TEMPLATE,
-  template = ARCHIVE_RTSP_TEMPLATE,
   now,
 } = {}) {
   const window = archiveWindow({ timestamp, leadMinutes, durationMinutes, now });
@@ -37,17 +36,16 @@ export function buildTvPlaybackRequest({
   // The endpoint port (DVRIP/CGI) and the RTSP video port are different
   // settings: 34567 is control, 554 is video.
   const videoPort = rtspPort || port;
-  const rtspUrl = buildArchiveUrl({
+  // Guest URL: the TV trigger hands the DVR a credential-free RTSP address so
+  // no player or set-top box can raise a password prompt either.
+  const rtspUrl = buildGuestArchiveUrl({
     ip,
     port: videoPort,
-    user,
-    pass,
     timestamp,
     leadMinutes,
     durationMinutes,
     channel,
     subtype,
-    template,
     now,
   });
   if (!rtspUrl) return { ok: false, reason: 'bad-config' };

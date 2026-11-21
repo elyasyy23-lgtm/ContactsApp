@@ -31,7 +31,7 @@ import { ScreenHeader } from '../components/ui';
 import { BUILD_STAMP } from '../buildInfo';
 import { buildAppShareText, canShare } from '../utils/share';
 import {
-  buildArchiveUrl,
+  buildGuestArchiveUrl,
   maskRtspUrl,
 } from '../utils/rtsp';
 import { triggerTVPlayback } from '../utils/tvPlayback';
@@ -179,11 +179,11 @@ export default function SettingsScreen({ navigation }) {
 
     const values = dvrValues();
     const timestamp = Date.now();
-    const rtspUrl = buildArchiveUrl({
+    // Password-free guest URL (owner rule): the test must verify the same
+    // credential-free archive path the app actually uses.
+    const rtspUrl = buildGuestArchiveUrl({
       ip: values.ip,
       port: values.rtspPort,
-      user: values.user,
-      pass: values.pass,
       channel: values.channel,
       timestamp,
       leadMinutes: 5,
@@ -219,8 +219,6 @@ export default function SettingsScreen({ navigation }) {
       const result = await triggerTVPlayback({
         ip: values.ip,
         port: values.port,
-        user: values.user,
-        pass: values.pass,
         timestamp,
         channel: values.channel,
         rtspPort: values.rtspPort,

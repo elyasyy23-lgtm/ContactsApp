@@ -18,12 +18,12 @@ import { t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
 import {
   archiveWindow,
-  buildArchiveUrl,
+  buildGuestArchiveUrl,
   buildPlaybackCandidates,
   channelOf,
   dvripPortOf,
   maskRtspUrl,
-  rtspPortOf,
+  safeRtspPort,
   transactionTimestamp,
 } from '../utils/rtsp';
 import { triggerTVPlayback } from '../utils/tvPlayback';
@@ -33,30 +33,33 @@ import {
   addCctvListener,
   isAvailable as cctvAvailable,
   playArchive,
+  probeRtsp,
 } from '../../modules/cctv-playback';
 import { openInVlc, openLocalFileInVlc } from '../utils/vlc';
 
 /**
  * CCTV archive screen. VLC is the video player.
  *
- * How the credential prompt is avoided (the whole point of this screen):
+ * Owner rule: archive playback must work like the live stream — NO password.
  *
- * 1. Local clip (installed build): the `cctv-playback` module logs in to the DVR
- *    over DVRIP, finds the recording that covers the transaction time, downloads
- *    it, and VLC opens the LOCAL file. A local file has no authentication, so
- *    VLC never asks for a username or password.
- * 2. RTSP fallback: the archive URL carries the credentials in the PATH
- *    (`user=…&password=…`), the same shape as the live URL that already plays
- *    without a prompt. VLC therefore never has to answer a 401 challenge itself.
- * 3. Expo Go: no DVRIP socket, so only layer 2 is possible; the screen says so
+ * 1. Primary path: a credential-free RTSP archive URL on the RTSP port (554,
+ *    never the DVRIP control port 34567), handed straight to VLC. It carries no
+ *    userinfo and no `password=` value, so VLC can never raise its own
+ *    "RTSP authentication" dialog; the DVR answers as a guest.
+ * 2. Optional path (only when a DVR password is stored): the `cctv-playback`
+ *    module logs in over DVRIP, downloads the clip and VLC opens a LOCAL file,
+ *    which also needs no credentials.
+ * 3. Expo Go: no DVRIP socket, so only path 1 is possible; the screen says so
  *    plainly instead of pretending.
  */
 const CANDIDATE_LABELS = {
-  'archive-xm-path': 'آرشیو • رمز در مسیر (بدون پنجرهٔ رمز)',
-  'archive-local': 'آرشیو • زمان محلی دستگاه',
-  'archive-utc': 'آرشیو • زمان UTC',
-  'playback-local': 'مسیر /cam/playback',
-  'live-xm': 'پخش زنده (تست دسترسی)',
+  'archive-guest-xm': 'آرشیو • بدون رمز (مسیر اصلی دستگاه)',
+  'archive-guest-xm-bare': 'آرشیو • بدون هیچ پارامتر ورود',
+  'archive-guest-dahua': 'آرشیو • بدون رمز (زمان محلی)',
+  'archive-guest-dahua-utc': 'آرشیو • بدون رمز (زمان UTC)',
+  'archive-auth-xm': 'آرشیو • با رمز ذخیره‌شده در مسیر (بدون پنجرهٔ رمز)',
+  'live-guest-xm': 'پخش زنده بدون رمز (تست دسترسی)',
+  'live-auth-xm': 'پخش زنده با رمز ذخیره‌شده (تست دسترسی)',
 };
 
 export default function CctvPlayerScreen({ navigation, route }) {
@@ -74,25 +77,27 @@ export default function CctvPlayerScreen({ navigation, route }) {
     return parsed?.date ? parsed : null;
   }, [timestamp]);
 
-  const rtspPort = rtspPortOf(settings);
+  // Video always goes to the RTSP port; a stale/incorrect value (e.g. the
+  // DVRIP control port 34567) is corrected to 554 instead of being used.
+  const rtspPort = safeRtspPort(settings.rtspPort);
   const channel = channelOf(settings);
+  const hasPassword = Boolean(String(settings.dvrPassword || '').trim());
 
+  // Password-free archive URL — the default action. No userinfo, no password.
   const rtspUrl = useMemo(
     () =>
-      buildArchiveUrl({
+      buildGuestArchiveUrl({
         ip: settings.dvrIp,
         port: rtspPort,
-        user: settings.dvrUser,
-        pass: settings.dvrPassword,
         channel,
         timestamp,
       }),
-    [settings.dvrIp, rtspPort, settings.dvrUser, settings.dvrPassword, channel, timestamp],
+    [settings.dvrIp, rtspPort, channel, timestamp],
   );
 
-  // Ordered fallbacks: the shop DVR is an Xiongmai box whose RTSP server only
-  // documents live streaming, so the archive path must be settled by trying the
-  // documented shapes instead of guessing. First entry is the default action.
+  // Ordered, credential-free fallbacks: the shop DVR is an Xiongmai box whose
+  // RTSP server documents live streaming, so the archive path is settled by
+  // trying the documented guest shapes. First entry is the default action.
   const candidates = useMemo(
     () =>
       buildPlaybackCandidates({
@@ -108,7 +113,97 @@ export default function CctvPlayerScreen({ navigation, route }) {
 
   const maskedUrl = useMemo(() => maskRtspUrl(rtspUrl), [rtspUrl]);
 
-  // ── native archive playback ────────────────────────────────────────────────
+  // ── primary path: credential-free RTSP straight into VLC ───────────────────
+  const [guestStatus, setGuestStatus] = useState('idle');
+  const [guestText, setGuestText] = useState('');
+
+  const playGuestArchive = useCallback(async () => {
+    if (!candidates.length) {
+      setGuestStatus('error');
+      setGuestText(t('زمان تراکنش یا تنظیمات DVR معتبر نیست.'));
+      logError(CCTV_LOG_SECTIONS.PLAYBACK, 'پخش آرشیو آغاز نشد', 'زمان تراکنش یا تنظیمات DVR معتبر نیست.');
+      return;
+    }
+    setGuestStatus('running');
+    setGuestText('');
+
+    // Installed build: ask the DVR first and hand VLC only a URL that already
+    // answered 2xx. A 401 URL would make VLC raise its own password dialog,
+    // which is exactly what must never happen.
+    let chosen = candidates[0].url;
+    let chosenKey = candidates[0].key;
+    if (cctvAvailable) {
+      let sawAuth = false;
+      let networkFail = false;
+      let playable = false;
+      for (const candidate of candidates) {
+        const probe = await probeRtsp(candidate.url);
+        if (probe.ok) {
+          chosen = candidate.url;
+          chosenKey = candidate.key;
+          playable = true;
+          break;
+        }
+        if (probe.status === 401 || probe.status === 403) sawAuth = true;
+        if (probe.status === 0) networkFail = true;
+      }
+      if (!playable) {
+        setGuestStatus('error');
+        if (sawAuth && !hasPassword) {
+          setGuestText(
+            t(
+              'این دستگاه پخش مهمان (بدون رمز) را نمی‌پذیرد. رمز دوربین را در تنظیمات وارد کنید تا بدون هیچ پنجرهٔ رمزی پخش شود.',
+            ),
+          );
+          logWarning(
+            CCTV_LOG_SECTIONS.PLAYBACK,
+            'دستگاه پخش بدون رمز را رد کرد',
+            'پاسخ ۴۰۱ به همهٔ مسیرهای مهمان؛ رمز دوربین لازم است.',
+          );
+        } else if (sawAuth && hasPassword) {
+          setGuestText(t('رمز ذخیره‌شده پذیرفته نشد. رمز دوربین را در تنظیمات بررسی کنید.'));
+          logWarning(
+            CCTV_LOG_SECTIONS.PLAYBACK,
+            'رمز ذخیره‌شده پذیرفته نشد',
+            'پاسخ ۴۰۱ با مسیر دارای رمز.',
+          );
+        } else if (networkFail) {
+          setGuestText(t('دستگاه دوربین در شبکه پاسخ نداد. اتصال وای‌فای و آدرس دستگاه را بررسی کنید.'));
+          logError(CCTV_LOG_SECTIONS.PLAYBACK, 'دستگاه دوربین در دسترس نیست', 'اتصال شبکه برقرار نشد.');
+        } else {
+          setGuestText(t('هیچ‌کدام از مسیرهای آرشیو پاسخ قابل پخش نداد.'));
+          logWarning(CCTV_LOG_SECTIONS.PLAYBACK, 'مسیر آرشیو پیدا نشد');
+        }
+        return;
+      }
+    }
+
+    logInfo(
+      CCTV_LOG_SECTIONS.PLAYBACK,
+      'ارسال آرشیو به VLC (بدون پنجرهٔ رمز)',
+      `گزینه: ${chosenKey} • کانال ${channel} • پورت RTSP ${rtspPort}`,
+    );
+    const opened = await openInVlc(chosen, { mimeType: 'video/*' });
+    if (opened.ok) {
+      setGuestStatus('done');
+      setGuestText(t('آرشیو در VLC باز شد. اگر تصویر سیاه ماند، گزینهٔ بعدی را امتحان کنید.'));
+      logInfo(CCTV_LOG_SECTIONS.PLAYBACK, 'آرشیو در VLC باز شد', `گزینه: ${chosenKey}`);
+      return;
+    }
+    setGuestStatus('error');
+    setGuestText(
+      opened.reason === 'no-app'
+        ? t('هیچ پخش‌کننده‌ای برای این لینک پیدا نشد.')
+        : t('پخش‌کننده لینک را نپذیرفت.'),
+    );
+    logWarning(
+      CCTV_LOG_SECTIONS.PLAYBACK,
+      'ارسال آرشیو به VLC ناموفق بود',
+      `گزینه: ${chosenKey} • علت: ${opened.reason || 'unknown'}`,
+    );
+  }, [candidates, hasPassword, channel, rtspPort, t, logInfo, logWarning, logError]);
+
+  // ── native archive playback (optional: needs a stored DVR password) ───────
   const [playState, setPlayState] = useState('idle');
   const [playText, setPlayText] = useState('');
   const [received, setReceived] = useState(null);
@@ -240,8 +335,6 @@ export default function CctvPlayerScreen({ navigation, route }) {
       port: settings.dvrPort,
       rtspPort,
       channel,
-      user: settings.dvrUser,
-      pass: settings.dvrPassword,
       timestamp,
     });
     if (result?.ok) {
@@ -281,8 +374,6 @@ export default function CctvPlayerScreen({ navigation, route }) {
     settings.dvrPort,
     rtspPort,
     channel,
-    settings.dvrUser,
-    settings.dvrPassword,
     t,
     timestamp,
     logInfo,
@@ -338,6 +429,24 @@ export default function CctvPlayerScreen({ navigation, route }) {
     async (candidate) => {
       if (!candidate?.url) return;
       logInfo(CCTV_LOG_SECTIONS.PLAYBACK, 'ارسال گزینهٔ پخش به VLC', `گزینه: ${candidate.key}`);
+      if (cctvAvailable) {
+        const probe = await probeRtsp(candidate.url);
+        if (!probe.ok) {
+          const why =
+            probe.status === 401 || probe.status === 403
+              ? t('این مسیر را دستگاه رد کرد (۴۰۱). رمز دوربین در تنظیمات لازم است.')
+              : probe.status === 0
+                ? t('دستگاه دوربین در شبکه پاسخ نداد.')
+                : t('دستگاه این مسیر آرشیو را نپذیرفت (کد {code}).', { code: probe.status });
+          Alert.alert(t('این مسیر پخش نمی‌شود'), why);
+          logWarning(
+            CCTV_LOG_SECTIONS.PLAYBACK,
+            'مسیر آرشیو پخش‌شدنی نبود',
+            `گزینه: ${candidate.key} • کد پاسخ: ${probe.status}`,
+          );
+          return;
+        }
+      }
       const opened = await openInVlc(candidate.url, { mimeType: 'video/*' });
       if (opened.ok) return;
       Alert.alert(
@@ -394,6 +503,48 @@ export default function CctvPlayerScreen({ navigation, route }) {
           <View style={styles.cardTitleRow}>
             <Ionicons
               name={
+                guestStatus === 'done'
+                  ? 'checkmark-circle'
+                  : guestStatus === 'error'
+                    ? 'alert-circle'
+                    : 'play-circle-outline'
+              }
+              size={19}
+              color={
+                guestStatus === 'done'
+                  ? colors.green
+                  : guestStatus === 'error'
+                    ? colors.red
+                    : colors.primary
+              }
+            />
+            <Text style={styles.cardTitle}>{t('پخش آرشیو در VLC (بدون رمز)')}</Text>
+            {guestStatus === 'running' ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : null}
+          </View>
+          <Text style={styles.cardHint}>
+            {t(
+              'اول با پخش مهمان (بدون رمز) امتحان می‌شود؛ اگر دستگاه اجازه ندهد، خودکار از رمز ذخیره‌شده در آدرس استفاده می‌شود — در هر دو حالت هیچ پنجرهٔ رمزی در VLC باز نمی‌شود.',
+            )}
+          </Text>
+          {guestText ? <Text style={styles.cardText}>{guestText}</Text> : null}
+          <TouchableOpacity
+            style={[styles.primaryBtn, guestStatus === 'running' ? { opacity: 0.6 } : null]}
+            onPress={playGuestArchive}
+            disabled={guestStatus === 'running' || !candidates.length}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="play" size={16} color={colors.white} />
+            <Text style={styles.primaryBtnText}>{t('باز کردن آرشیو در VLC')}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {hasPassword ? (
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons
+              name={
                 playState === 'done'
                   ? 'checkmark-circle'
                   : playState === 'error'
@@ -409,7 +560,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
                     : colors.primary
               }
             />
-            <Text style={styles.cardTitle}>{t('دریافت آرشیو و پخش در VLC')}</Text>
+            <Text style={styles.cardTitle}>{t('دریافت فایل آرشیو و پخش در VLC')}</Text>
             {playState === 'running' ? (
               <ActivityIndicator size="small" color={colors.primary} />
             ) : null}
@@ -439,7 +590,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
               color={colors.white}
             />
             <Text style={styles.primaryBtnText}>
-              {playState === 'running' ? t('در حال دریافت...') : t('پخش آرشیو')}
+              {playState === 'running' ? t('در حال دریافت...') : t('دریافت آرشیو')}
             </Text>
           </TouchableOpacity>
           {playState === 'unavailable' ? (
@@ -450,6 +601,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
             </Text>
           ) : null}
         </View>
+        ) : null}
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
@@ -510,7 +662,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
               {maskedUrl || t('لینک RTSP ساخته نشد')}
             </Text>
           </View>
-          <Text style={styles.cardHint}>{t('رمز عبور در نمایش پنهان است.')}</Text>
+          <Text style={styles.cardHint}>{t('آدرس با پورت ۵۵۴ و بدون نام کاربری و رمز ساخته می‌شود.')}</Text>
           <View style={styles.btnRow}>
             <TouchableOpacity
               style={styles.primaryBtn}
@@ -523,7 +675,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
           <Text style={styles.cardHint}>
-            {t('رمز در مسیر لینک قرار دارد؛ همان شکلی که پخش زنده را بدون پنجرهٔ رمز باز می‌کند.')}
+            {t('اگر دستگاه به مهمان اجازهٔ پخش آرشیو بدهد این لینک بدون هیچ رمزی باز می‌شود.')}
           </Text>
         </View>
       </ScrollView>

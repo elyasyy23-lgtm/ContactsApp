@@ -72,6 +72,31 @@ export async function openInVlc(uri, mimeType) {
   }
 }
 
+/**
+ * Asks the DVR whether an RTSP URL is playable, before VLC ever sees it.
+ *
+ * Returns { ok, status, reason }. `ok` is true only for a 2xx DESCRIBE answer.
+ * Used to pick the right archive URL (guest first, then the credential-in-path
+ * form) so VLC is never handed a URL that answers `401` — which is what makes
+ * VLC pop its own username/password dialog.
+ */
+export async function probeRtsp(url) {
+  if (!nativeModule) return { ok: false, status: 0, reason: 'unavailable' };
+  const target = String(url || '').trim();
+  if (!target) return { ok: false, status: 0, reason: 'empty-url' };
+  try {
+    const result = await nativeModule.probeRtsp(target);
+    if (!result || typeof result !== 'object') return { ok: false, status: 0, reason: 'error' };
+    return {
+      ok: Boolean(result.ok),
+      status: Number(result.status) || 0,
+      reason: String(result.reason || ''),
+    };
+  } catch (error) {
+    return { ok: false, status: 0, reason: String(error?.message || 'error') };
+  }
+}
+
 export function addCctvListener(handler) {
   if (!emitter) return { remove() {} };
   const subscription = emitter.addListener('onCctvEvent', handler);

@@ -642,26 +642,53 @@ try {
   const candidates = rtsp.buildPlaybackCandidates({
     ip: '192.168.1.64',
     rtspPort: '554',
-    user: 'admin',
-    pass: 'p',
     channel: 2,
     timestamp: cctvTx,
     now: 0,
   });
   assert.deepStrictEqual(
     candidates.map((c) => c.key),
-    ['archive-xm-path', 'archive-local', 'archive-utc', 'playback-local', 'live-xm'],
-    'playback candidates are ordered best-guess first',
+    ['archive-guest-xm', 'archive-guest-xm-bare', 'archive-guest-dahua', 'archive-guest-dahua-utc', 'live-guest-xm'],
+    'playback candidates are ordered best-guess first and are all password-free',
   );
   assert.ok(candidates.every((c) => c.url.startsWith('rtsp://')), 'every candidate is an RTSP URL');
+  assert.ok(candidates.every((c) => !c.url.includes('@')), 'no candidate carries userinfo');
+  assert.ok(
+    candidates.every((c) => !/password=[^&]+/.test(c.url)),
+    'no candidate carries a password value',
+  );
   assert.ok(candidates[0].url.includes('channel=2'), 'candidates honour the channel');
   assert.ok(
-    /\/user=admin&password=p&channel=2&stream=0\.sdp\?real_stream&starttime=/.test(candidates[0].url),
-    'the primary archive candidate carries the password in the PATH (no VLC prompt)',
+    /\/user=&password=&channel=2&stream=0\.sdp\?real_stream&starttime=\d{14}&endtime=\d{14}$/.test(
+      candidates[0].url,
+    ),
+    'the primary candidate uses the native path with empty credentials and Xiongmai 14-digit stamps',
   );
-  assert.ok(!candidates[0].url.includes('admin:p'), 'the primary archive candidate has no userinfo');
-  assert.ok(candidates[3].url.includes('/cam/playback?channel=2'), 'the Dahua playback path is tried');
-  assert.ok(/starttime=\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}/.test(candidates[3].url), 'playback uses underscore stamps');
+  assert.ok(
+    /\/cam\/realmonitor\?channel=2&subtype=0&starttime=\d{14}&endtime=\d{14}$/.test(candidates[1].url),
+    'the bare candidate has no credential parameters at all',
+  );
+  assert.ok(/starttime=\d{8}T\d{6}&endtime=/.test(candidates[2].url), 'the Dahua guest candidate uses a local T stamp');
+  assert.ok(/starttime=\d{8}T\d{6}Z&endtime=/.test(candidates[3].url), 'the UTC guest candidate keeps the Z form');
+
+  // Guest archive URL: right port, no credentials, vendor timestamp, honoured range.
+  const guestUrl = rtsp.buildGuestArchiveUrl({
+    ip: '192.168.1.64',
+    port: '34567',
+    channel: 2,
+    timestamp: cctvTx,
+    now: 0,
+  });
+  assert.ok(guestUrl.startsWith('rtsp://192.168.1.64:554/'), 'the control port 34567 is never used for video');
+  assert.ok(!guestUrl.includes('@'), 'the guest archive URL has no userinfo');
+  assert.ok(/starttime=\d{14}&endtime=\d{14}$/.test(guestUrl), 'the range is sent in the vendor 14-digit form');
+  assert.strictEqual(rtsp.buildGuestArchiveUrl({ ip: '', timestamp: cctvTx }), null, 'no IP → no guest URL');
+  assert.strictEqual(rtsp.toXmStamp('2026-11-19T12:29:56Z'), '20261119155956', 'the XM stamp is device-local 14 digits');
+
+  assert.strictEqual(rtsp.safeRtspPort('34567'), '554', 'the DVRIP control port is never used for RTSP');
+  assert.strictEqual(rtsp.safeRtspPort('5037'), '554', 'adb port is rejected');
+  assert.strictEqual(rtsp.safeRtspPort(''), '554', 'blank falls back to 554');
+  assert.strictEqual(rtsp.safeRtspPort('8554'), '8554', 'a real custom RTSP port is kept');
 
   assert.strictEqual(rtsp.rtspPortOf({}), '554', 'RTSP defaults to 554');
   assert.strictEqual(rtsp.rtspPortOf({ rtspPort: '8554' }), '8554', 'a custom RTSP port is used');
@@ -750,7 +777,7 @@ try {
     'utf8',
   );
   assert.ok(cctvSettingsScreen.includes('Test TV Playback'), 'the exact TV test label is present');
-  assert.ok(cctvSettingsScreen.includes('buildArchiveUrl'), 'the test builds an archive URL');
+  assert.ok(cctvSettingsScreen.includes('buildGuestArchiveUrl'), 'the test builds a password-free archive URL');
   assert.ok(cctvSettingsScreen.includes('triggerTVPlayback'), 'the test triggers TV playback');
 
   const cctvAppSrc = fs.readFileSync(path.join(ROOT, 'App.js'), 'utf8');
@@ -821,7 +848,36 @@ try {
   assert.deepStrictEqual(missingKeys, [], 'every CCTV screen string is translated');
 
   assert.ok(cctvPlayerSrc.includes('buildPlaybackCandidates'), 'the player offers the RTSP fallbacks');
-  assert.ok(cctvPlayerSrc.includes('rtspPortOf'), 'the player uses the RTSP port, not the DVRIP port');
+  assert.ok(cctvPlayerSrc.includes('safeRtspPort'), 'the player forces the RTSP port, not the DVRIP port');
+  // Guest first; the credential path is only a fallback, and it must stay in
+  // the path (`user=…&password=…`), never as RTSP userinfo — userinfo is what
+  // makes VLC raise its own username/password dialog.
+  assert.ok(
+    !/\/\/\$\{?[A-Za-z_.]*[Uu]ser[^@]*@/.test(cctvPlayerSrc) && !/rtsp:\/\/[^'"]*@/.test(cctvPlayerSrc),
+    'the player never builds RTSP userinfo (VLC would prompt for a password)',
+  );
+  const authUrl = rtsp.buildPathCredentialArchiveUrl({
+    ip: '192.168.1.64',
+    user: 'admin',
+    pass: 'secret',
+    timestamp: '2026-11-19T12:29:56Z',
+    now: 0,
+  });
+  assert.ok(
+    authUrl && authUrl.includes('user=admin&password=secret'),
+    'the credential fallback keeps the password in the URL path, not in userinfo',
+  );
+  assert.ok(authUrl && !authUrl.includes('@'), 'the credential fallback adds no RTSP userinfo');
+  assert.ok(
+    !authUrl || authUrl.indexOf('192.168.1.64:554/') !== -1,
+    'the credential fallback still uses the RTSP port',
+  );
+  assert.strictEqual(
+    rtsp.buildPathCredentialArchiveUrl({ ip: '192.168.1.64', pass: '', timestamp: '2026-11-19T12:29:56Z' }),
+    null,
+    'no stored password means no auth candidate',
+  );
+  assert.ok(cctvPlayerSrc.includes('probeRtsp'), 'the player probes the DVR before handing a URL to VLC');
   assert.ok(cctvSettingsScreen.includes('rtspPort'), 'settings expose the RTSP port');
   assert.ok(cctvSettingsScreen.includes('dvrChannel'), 'settings expose the camera channel');
   assert.ok(
