@@ -49,6 +49,67 @@ export async function playArchive(options) {
   }
 }
 
+/**
+ * Streams the archived window instead of downloading it first.
+ *
+ * Same options as `playArchive` (plus `streamType: 0|1`), but it resolves as
+ * soon as the recording is located and returns `{ ok, url, streaming: true }`.
+ * The player opens `url` (loopback HTTP served by the native module) and starts
+ * on the first frames while the rest is still arriving — the XMEye behaviour.
+ * Transfer problems after the resolve arrive as `error` events.
+ */
+export async function streamArchive(options) {
+  const payload = options && typeof options === 'object' ? options : {};
+  if (!nativeModule || typeof nativeModule.streamArchive !== 'function') {
+    return { ok: false, reason: 'unavailable' };
+  }
+  if (!payload.ip || !Number.isFinite(Number(payload.port))) {
+    return { ok: false, reason: 'config' };
+  }
+  if (!Number.isFinite(Number(payload.startMs))) {
+    return { ok: false, reason: 'time' };
+  }
+  try {
+    const result = await nativeModule.streamArchive(payload);
+    return result && typeof result === 'object' ? result : { ok: false, reason: 'error' };
+  } catch (error) {
+    const code = String(error?.code || '');
+    return {
+      ok: false,
+      reason: code === 'E_CANCELLED' ? 'cancelled' : 'error',
+      message: String(error?.message || error),
+    };
+  }
+}
+
+/**
+ * Read-only check of what the recorder allows without a password.
+ *
+ * Returns `{ ok, guestUsable, attempts, configs }`. Nothing is written to the
+ * device — the DVRIP protocol has no account-write call, so guest access can
+ * only be enabled on the recorder itself.
+ */
+export async function probeGuest(options) {
+  const payload = options && typeof options === 'object' ? options : {};
+  if (!nativeModule || typeof nativeModule.probeGuest !== 'function') {
+    return { ok: false, guestUsable: false, reason: 'unavailable', attempts: [], configs: {} };
+  }
+  try {
+    const result = await nativeModule.probeGuest(payload);
+    return result && typeof result === 'object'
+      ? result
+      : { ok: false, guestUsable: false, attempts: [], configs: {} };
+  } catch (error) {
+    return {
+      ok: false,
+      guestUsable: false,
+      reason: String(error?.message || 'error'),
+      attempts: [],
+      configs: {},
+    };
+  }
+}
+
 /** Cancels an in-flight download. */
 export async function stopArchive() {
   if (!nativeModule) return false;

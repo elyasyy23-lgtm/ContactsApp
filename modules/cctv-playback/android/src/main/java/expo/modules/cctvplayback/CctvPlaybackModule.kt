@@ -35,6 +35,10 @@ class CctvPlaybackModule : Module() {
   @Volatile
   private var activeClient: DvripClient? = null
 
+  /** The loopback server currently feeding the player (streaming mode). */
+  @Volatile
+  private var activeStream: ArchiveStreamServer? = null
+
   private fun asInt(value: Any?, fallback: Int): Int = when (value) {
     is Number -> value.toInt()
     is String -> value.trim().toIntOrNull() ?: fallback
@@ -295,6 +299,301 @@ class CctvPlaybackModule : Module() {
       }.start()
     }
 
+    /**
+     * Streams one archived window to the player while it is still downloading.
+     *
+     * This exists because a ten-minute window on this recorder is 40+ MB: the
+     * file-based path keeps the owner staring at a progress counter for a
+     * couple of minutes, while XMEye shows the archive almost immediately. The
+     * DVR answers `OPPlayBack` as one continuous Annex-B stream, so there is no
+     * technical reason to wait — the bytes go into a loopback HTTP server the
+     * moment they arrive and VLC starts on the first frames.
+     *
+     * Resolves with `{ok, url, ...}` as soon as the recording window is found,
+     * *before* the download starts, so JS can hand the URL to the player
+     * immediately. Any later failure arrives as an `error` event.
+     */
+    AsyncFunction("streamArchive") { options: Map<String, Any?>, promise: Promise ->
+      cancelRequested = false
+
+      val ip = asText(options["ip"])
+      val port = asInt(options["port"], DEFAULT_PORT)
+      val user = asText(options["user"]).ifEmpty { "admin" }
+      val password = options["password"] as? String ?: ""
+      val channel = asInt(options["channel"], 1).coerceIn(1, 4)
+      val streamType = asInt(options["streamType"], 0).coerceIn(0, 1)
+      val clipStart = asLong(options["startMs"])
+      val clipEnd = asLong(options["endMs"])
+
+      if (ip.isEmpty()) {
+        promise.reject("E_CONFIG", "DVR address is empty", null)
+        return@AsyncFunction
+      }
+      if (port !in 1..65535) {
+        promise.reject("E_CONFIG", "DVR port is invalid", null)
+        return@AsyncFunction
+      }
+      if (clipStart == null) {
+        promise.reject("E_CONFIG", "Transaction time is invalid", null)
+        return@AsyncFunction
+      }
+
+      val endMs = clipEnd ?: (clipStart + 10 * 60_000L)
+      val context = appContext.reactContext
+      if (context == null) {
+        promise.reject("E_CONTEXT", "App context is unavailable", null)
+        return@AsyncFunction
+      }
+
+      Thread {
+        val server = ArchiveStreamServer()
+        activeStream = server
+        var settled = false
+        var queryClient: DvripClient? = null
+        try {
+          server.start()
+
+          val client = DvripClient(ip, port, user, password, 8000, streamType)
+          queryClient = client
+          activeClient = client
+
+          sendEvent("onCctvEvent", mapOf("type" to "stage", "stage" to "connecting"))
+          client.connect()
+          sendEvent("onCctvEvent", mapOf("type" to "stage", "stage" to "login"))
+          client.login()
+
+          val beginStamp = DvripClient.stamp(Date(clipStart - WIDEN_MINUTES * 60_000L))
+          val endStamp = DvripClient.stamp(Date(endMs + WIDEN_MINUTES * 60_000L))
+          val moment = DvripClient.stamp(Date(clipStart))
+
+          sendEvent("onCctvEvent", mapOf("type" to "stage", "stage" to "query"))
+          val files = client.queryFiles(beginStamp, endStamp, channel - 1)
+          if (files.isEmpty()) throw DvripException("no recording found for this time")
+
+          var segments = client.segmentsFor(files, clipStart, endMs)
+          if (segments.isEmpty()) {
+            val chosen = client.pickFile(files, moment)
+              ?: throw DvripException("no recording found for this time")
+            segments = listOf(chosen)
+          }
+
+          try { client.logout() } catch (_: Exception) { }
+          try { client.close() } catch (_: Exception) { }
+          if (activeClient === client) activeClient = null
+          queryClient = null
+
+          // The player can start right now: the URL is live and bytes follow.
+          settled = true
+          promise.resolve(
+            mapOf(
+              "ok" to true,
+              "streaming" to true,
+              "url" to server.url,
+              "port" to server.port,
+              "file" to segments.first().fileName,
+              "begin" to segments.first().begin,
+              "end" to segments.last().end,
+              "segments" to segments.size,
+              "streamType" to streamType,
+              "startMs" to clipStart,
+              "endMs" to endMs
+            )
+          )
+          settled = true
+
+          val totalFrames = DvripClient.framesFor(endMs - clipStart)
+          var written = 0L
+          var counted = 0L
+
+          for ((index, segment) in segments.withIndex()) {
+            if (cancelRequested) throw DvripException("cancelled")
+            if (counted >= totalFrames || written >= MAX_CLIP_BYTES) break
+
+            val fileBegin = DvripClient.parseStamp(segment.begin) ?: clipStart
+            val fileEnd = DvripClient.parseStamp(segment.end) ?: endMs
+            val segStart = Math.max(clipStart, fileBegin)
+            val segEnd = Math.min(endMs, Math.max(fileEnd, segStart + 1000L))
+            val budget = Math.min(
+              totalFrames - counted,
+              DvripClient.framesFor(segEnd - segStart)
+            )
+
+            sendEvent(
+              "onCctvEvent",
+              mapOf(
+                "type" to "stage",
+                "stage" to "streaming",
+                "file" to segment.fileName,
+                "bytes" to segment.size,
+                "segment" to (index + 1),
+                "segments" to segments.size
+              )
+            )
+
+            val session = DvripClient(ip, port, user, password, 8000, streamType)
+            activeClient = session
+            try {
+              session.connect()
+              session.login()
+              written += session.streamRange(
+                segment,
+                segStart,
+                budget,
+                MAX_CLIP_BYTES - written,
+                { bytes ->
+                  sendEvent(
+                    "onCctvEvent",
+                    mapOf(
+                      "type" to "progress",
+                      "bytes" to (written + bytes),
+                      "total" to 0,
+                      "file" to segment.fileName,
+                      "frames" to (counted + session.frames),
+                      "framesTotal" to totalFrames,
+                      "streaming" to true
+                    )
+                  )
+                }
+              ) { chunk ->
+                if (!server.push(chunk)) throw DvripException("cancelled")
+              }
+              counted += session.frames
+            } finally {
+              if (activeClient === session) activeClient = null
+              if (!cancelRequested) {
+                try { session.logout() } catch (_: Exception) { }
+              }
+              try { session.close() } catch (_: Exception) { }
+            }
+          }
+
+          server.finish()
+          sendEvent(
+            "onCctvEvent",
+            mapOf("type" to "stage", "stage" to "streamed", "bytes" to written)
+          )
+        } catch (error: Exception) {
+          server.close()
+          val cancelled = cancelRequested
+          val message = if (cancelled) "cancelled" else (error.message ?: "archive stream failed")
+          sendEvent(
+            "onCctvEvent",
+            mapOf("type" to "error", "message" to message, "cancelled" to cancelled)
+          )
+          // Before the URL was handed over there is nobody listening yet, so the
+          // caller still needs the rejection; afterwards the event is enough.
+          if (!settled) {
+            promise.reject(if (cancelled) "E_CANCELLED" else "E_DVRIP", message, null)
+          }
+        } finally {
+          if (activeStream === server) {
+            // On a clean finish the serving thread closes itself after the last
+            // chunk; only an aborted run needs closing here.
+            if (cancelRequested || !settled) server.close()
+            activeStream = null
+          }
+          activeClient = null
+          val leftover = queryClient
+          if (leftover != null) {
+            if (!cancelRequested) {
+              try { leftover.logout() } catch (_: Exception) { }
+            }
+            try { leftover.close() } catch (_: Exception) { }
+          }
+        }
+      }.start()
+    }
+
+    /**
+     * Read-only account probe: can this recorder be used without a password?
+     *
+     * Guest/anonymous playback cannot be switched on from a client — the DVRIP
+     * protocol has no account-write call — so the app tests what the device
+     * actually allows and reports it honestly instead of guessing. Nothing is
+     * changed on the recorder.
+     */
+    AsyncFunction("probeGuest") { options: Map<String, Any?>, promise: Promise ->
+      val ip = asText(options["ip"])
+      val port = asInt(options["port"], DEFAULT_PORT)
+      val channel = asInt(options["channel"], 1).coerceIn(1, 4)
+      val startMs = asLong(options["startMs"]) ?: System.currentTimeMillis()
+      val ownerUser = asText(options["user"]).ifEmpty { "admin" }
+      val ownerPassword = options["password"] as? String ?: ""
+
+      if (ip.isEmpty()) {
+        promise.reject("E_CONFIG", "DVR address is empty", null)
+        return@AsyncFunction
+      }
+
+      Thread {
+        val attempts = ArrayList<Map<String, Any?>>()
+        val candidates = listOf("guest" to "", "guest" to "guest", "anonymous" to "", "admin" to "")
+        var anyWorks = false
+        for ((name, secret) in candidates) {
+          val client = DvripClient(ip, port, name, secret)
+          var answer = "unreachable"
+          var files = 0
+          var ret = -1
+          try {
+            client.connect()
+            client.login()
+            ret = 100
+            val begin = DvripClient.stamp(Date(startMs - WIDEN_MINUTES * 60_000L))
+            val end = DvripClient.stamp(Date(startMs + WIDEN_MINUTES * 60_000L))
+            val found = client.queryFiles(begin, end, channel - 1)
+            files = found.size
+            answer = if (files > 0) "playback-ok" else "login-ok-no-files"
+            if (files > 0) anyWorks = true
+          } catch (error: Exception) {
+            answer = error.message ?: "failed"
+          } finally {
+            try { client.logout() } catch (_: Exception) { }
+            try { client.close() } catch (_: Exception) { }
+          }
+          attempts.add(
+            mapOf(
+              "user" to name,
+              "secret" to (if (secret.isEmpty()) "none" else "known-default"),
+              "ret" to ret,
+              "files" to files,
+              "result" to answer
+            )
+          )
+        }
+
+        // Device configuration that decides guest access lives on the recorder;
+        // read the user/config blocks so the owner sees what the box reports.
+        val configs = LinkedHashMap<String, Any?>()
+        val probeClient = DvripClient(ip, port, ownerUser, ownerPassword)
+        try {
+          probeClient.connect()
+          probeClient.login()
+          for (name in listOf("Users", "General", "NetWork")) {
+            try {
+              val reply = probeClient.readConfig(name)
+              configs[name] = reply.toString().take(4000)
+            } catch (error: Exception) {
+              configs[name] = "error: " + (error.message ?: "failed")
+            }
+          }
+        } catch (error: Exception) {
+          configs["error"] = error.message ?: "config read failed"
+        } finally {
+          try { probeClient.logout() } catch (_: Exception) { }
+          try { probeClient.close() } catch (_: Exception) { }
+        }
+
+        promise.resolve(
+          mapOf(
+            "ok" to anyWorks,
+            "guestUsable" to anyWorks,
+            "attempts" to attempts,
+            "configs" to configs
+          )
+        )
+      }.start()
+    }
+
     AsyncFunction("probeRtsp") { urlText: String, promise: Promise ->
       val url = urlText.trim()
       if (url.isEmpty()) {
@@ -311,6 +610,10 @@ class CctvPlaybackModule : Module() {
       try { client?.cancelled = true } catch (_: Exception) { }
       // A blocked DVRIP read only unblocks when the socket goes away.
       try { client?.close() } catch (_: Exception) { }
+      // The player side too, otherwise a paused VLC keeps the loopback socket.
+      val stream = activeStream
+      try { stream?.close() } catch (_: Exception) { }
+      activeStream = null
       true
     }
 

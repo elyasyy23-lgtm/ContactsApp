@@ -855,8 +855,24 @@ try {
     'the player uses the native DVRIP archive fetch',
   );
   assert.ok(
-    /autoStartedRef[\s\S]{0,400}playClip\(\)/.test(cctvPlayerSrc),
-    'opening the screen starts the native archive download (primary action)',
+    cctvPlayerSrc.includes('streamArchive({'),
+    'the player streams the archive while it downloads (XMEye behaviour)',
+  );
+  assert.ok(
+    /autoStartedRef[\s\S]{0,400}streamClip\(\)/.test(cctvPlayerSrc),
+    'opening the screen starts the native archive stream (primary action)',
+  );
+  assert.ok(
+    cctvPlayerSrc.includes('probeGuest({'),
+    'the player can measure guest/anonymous access without changing the DVR',
+  );
+  assert.ok(
+    cctvPlayerSrc.includes('subStream') && cctvPlayerSrc.includes('streamType:'),
+    'the stream quality (sub/main) is selectable',
+  );
+  assert.ok(
+    cctvPlayerSrc.includes('مگابایت بر ثانیه') && cctvPlayerSrc.includes('سرعت'),
+    'the streaming card reports transfer speed',
   );
   assert.ok(
     cctvPlayerSrc.includes('پخش آرشیو ضبط‌شده (تضمینی)'),

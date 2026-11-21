@@ -48,7 +48,9 @@ class DvripClient(
   private val port: Int,
   private val user: String,
   private val password: String,
-  private val timeoutMs: Int = 8000
+  private val timeoutMs: Int = 8000,
+  /** 0 = main stream, 1 = extra/sub stream (much smaller files, faster start). */
+  private val streamType: Int = 0
 ) {
   companion object {
     private const val HEADER_SIZE = 20
@@ -59,6 +61,7 @@ class DvripClient(
     const val DEFAULT_FPS = 25
 
     private const val MSG_LOGIN = 1000
+    private const val MSG_CONFIG = 1040
     private const val MSG_FILE_QUERY = 1440
     private const val MSG_PLAYBACK = 1420
     private const val MSG_PLAYBACK_CLAIM = 1424
@@ -138,6 +141,7 @@ class DvripClient(
   fun connect() {
     val s = Socket()
     s.tcpNoDelay = true
+    try { s.receiveBufferSize = 1024 * 1024 } catch (_: Exception) { }
     s.connect(InetSocketAddress(host, port), timeoutMs)
     s.soTimeout = timeoutMs * 4
     socket = s
@@ -358,7 +362,7 @@ class DvripClient(
     JSONObject()
       .put("PlayMode", "ByName")
       .put("FileName", file.fileName)
-      .put("StreamType", 0)
+      .put("StreamType", if (streamType == 1) 1 else 0)
       .put("Value", 0)
       .put("TransMode", "TCP")
 
@@ -451,6 +455,46 @@ class DvripClient(
     byteLimit: Long,
     onProgress: (Long) -> Unit = {}
   ): Long {
+    target.parentFile?.mkdirs()
+    var written = 0L
+    java.io.FileOutputStream(target, true).use { sink ->
+      written = pump(file, startMs, frameBudget, byteLimit, onProgress) { chunk ->
+        sink.write(chunk)
+      }
+      sink.flush()
+    }
+    return written
+  }
+
+  /**
+   * Same conversation as [downloadRange], but every packet is handed to [emit]
+   * instead of a file. This is what lets the player start on the first frames:
+   * the DVR answers `OPPlayBack` as one continuous Annex-B stream, so there is
+   * nothing to wait for but the first chunk.
+   */
+  fun streamRange(
+    file: ArchiveFile,
+    startMs: Long,
+    frameBudget: Long,
+    byteLimit: Long,
+    onProgress: (Long) -> Unit = {},
+    emit: (ByteArray) -> Unit
+  ): Long = pump(file, startMs, frameBudget, byteLimit, onProgress, emit)
+
+  /**
+   * One archive read: claim, start, forward packets, stop.
+   *
+   * Frames may be unreadable on a firmware that does not emit Annex-B slices;
+   * after a few megabytes with no picture counted the byte limit takes over.
+   */
+  private fun pump(
+    file: ArchiveFile,
+    startMs: Long,
+    frameBudget: Long,
+    byteLimit: Long,
+    onProgress: (Long) -> Unit,
+    emit: (ByteArray) -> Unit
+  ): Long {
     val begin = parseStamp(file.begin) ?: startMs
     val end = parseStamp(file.end) ?: startMs
     val moment = Math.min(Math.max(startMs, begin), Math.max(begin, end - 1000L))
@@ -465,14 +509,11 @@ class DvripClient(
       val ret = retOf(first)
       throw DvripException("download refused: ${describeRet(ret)}")
     }
-    target.parentFile?.mkdirs()
     var written = 0L
-    // Frames may be unreadable on a firmware that does not emit Annex-B slices;
-    // after a few megabytes with no picture counted the byte limit takes over.
     var trustFrames = true
-    java.io.FileOutputStream(target, true).use { sink ->
+    try {
       if (first.isNotEmpty()) {
-        sink.write(first)
+        emit(first)
         written += first.size
         countSlices(first)
         onProgress(written)
@@ -483,7 +524,7 @@ class DvripClient(
         val chunkLength = readIntLE(header, 16)
         if (chunkLength <= 0) break
         val chunk = readExact(chunkLength)
-        sink.write(chunk)
+        emit(chunk)
         written += chunk.size
         countSlices(chunk)
         onProgress(written)
@@ -491,15 +532,23 @@ class DvripClient(
         if (trustFrames && frames >= frameBudget) break
         if (written >= byteLimit) break
       }
-      sink.flush()
-    }
-    try {
-      sendAndRead(MSG_PLAYBACK, playbackBody(file, "DownloadStop", startStamp))
-    } catch (_: Exception) {
-      // The clip is already on disk; a missing stop reply must not fail it.
+    } finally {
+      try {
+        sendAndRead(MSG_PLAYBACK, playbackBody(file, "DownloadStop", startStamp))
+      } catch (_: Exception) {
+        // The window is already delivered; a missing stop reply must not fail it.
+      }
     }
     return written
   }
+
+  /**
+   * Reads one device configuration block (OPConfig 1040). Used to inspect what
+   * this firmware exposes (e.g. whether a guest account exists) without ever
+   * writing anything back to the recorder.
+   */
+  fun readConfig(name: String): JSONObject =
+    sendAndRead(MSG_CONFIG, JSONObject().put("Name", name))
 
   /**
    * Downloads the whole file. `DownloadStart` answers with the first chunk in

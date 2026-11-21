@@ -34,8 +34,10 @@ import {
   addCctvListener,
   isAvailable as cctvAvailable,
   playArchive,
+  probeGuest,
   probeRtsp,
   stopArchive,
+  streamArchive,
 } from '../../modules/cctv-playback';
 import { openInVlc, openLocalFileInVlc } from '../utils/vlc';
 
@@ -224,19 +226,46 @@ export default function CctvPlayerScreen({ navigation, route }) {
     );
   }, [candidates, hasPassword, channel, rtspPort, t, logInfo, logWarning, logError]);
 
-  // ── PRIMARY path: native DVRIP archive download (guaranteed recording) ─────
+  // ── PRIMARY path: native DVRIP archive (streaming first, then file) ────────
   const [playState, setPlayState] = useState('idle');
   const [playText, setPlayText] = useState('');
   const [received, setReceived] = useState(null);
   const [stage, setStage] = useState('');
+  const [speed, setSpeed] = useState(0);
+  const [frames, setFrames] = useState(null);
+  const [subStream, setSubStream] = useState(true);
 
   const nativeReady = cctvAvailable && hasPassword;
+
+  // Byte-count samples for the speed readout. DVRIP delivers hundreds of small
+  // packets per second, so the number is recomputed at most every 500 ms rather
+  // than on every packet (a setState per packet would starve the UI thread).
+  const sampleRef = useRef({ bytes: 0, at: 0, lastAt: 0 });
 
   useEffect(() => {
     const subscription = addCctvListener((event) => {
       if (!event || typeof event !== 'object') return;
       if (event.type === 'progress') {
-        setReceived({ bytes: Number(event.bytes) || 0, total: Number(event.total) || 0 });
+        const bytes = Number(event.bytes) || 0;
+        const total = Number(event.total) || 0;
+        setReceived({ bytes, total: Math.max(total, bytes) });
+        setFrames({
+          done: Number(event.frames) || 0,
+          total: Number(event.framesTotal) || 0,
+        });
+        const now = Date.now();
+        const sample = sampleRef.current;
+        if (!sample.at) {
+          sample.at = now;
+          sample.bytes = bytes;
+          return;
+        }
+        const elapsed = now - sample.at;
+        if (elapsed < 500) return;
+        const rate = ((bytes - sample.bytes) * 1000) / elapsed;
+        sample.at = now;
+        sample.bytes = bytes;
+        setSpeed(rate > 0 ? rate : 0);
         return;
       }
       if (event.type === 'stage') {
@@ -246,12 +275,22 @@ export default function CctvPlayerScreen({ navigation, route }) {
           query: t('جستجوی ضبط همان بازه...'),
           download: t('دریافت تصویر ضبط‌شده...'),
           downloaded: t('دریافت کامل شد.'),
+          streaming: t('در حال پخش هم‌زمان با دریافت...'),
+          streamed: t('ارسال آرشیو کامل شد.'),
         };
         setStage(map[event.stage] || '');
         return;
       }
       if (event.type === 'error') {
         setReceived(null);
+        setFrames(null);
+        setSpeed(0);
+        // After the URL was handed to VLC a failure can only arrive as this
+        // event, so it has to be visible instead of silently freezing.
+        if (!event.cancelled) {
+          setPlayState('error');
+          setPlayText(event.message ? `${t('خطا')}: ${event.message}` : t('استریم قطع شد.'));
+        }
         return;
       }
     });
@@ -373,12 +412,129 @@ export default function CctvPlayerScreen({ navigation, route }) {
   ]);
 
 
+  // Streams instead of waiting for a full download: the DVRIP window is pushed
+  // into a loopback HTTP server packet by packet and VLC starts on the first
+  // frames, so the picture appears in seconds (the XMEye behaviour) instead of
+  // after a 40 MB transfer.
+  const streamClip = useCallback(async () => {
+    if (!cctvAvailable) {
+      setPlayState('unavailable');
+      logWarning(
+        CCTV_LOG_SECTIONS.PLAYBACK,
+        'استریم آرشیو در دسترس نیست',
+        'ماژول بومی در Expo Go وجود ندارد؛ فقط در نسخهٔ نصبی فعال است.',
+      );
+      return;
+    }
+    if (!hasPassword) {
+      setPlayState('error');
+      setPlayText(
+        t(
+          'برای پخش آرشیو، رمز دوربین را در تنظیمات وارد کنید. بدون رمز، دستگاه فقط تصویر زنده می‌دهد.',
+        ),
+      );
+      logWarning(CCTV_LOG_SECTIONS.PLAYBACK, 'استریم آرشیو آغاز نشد', 'رمز دوربین ذخیره نشده است.');
+      return;
+    }
+    const when = transactionTimestamp(timestamp);
+    if (!when) {
+      setPlayState('error');
+      setPlayText(t('زمان تراکنش یا تنظیمات DVR معتبر نیست.'));
+      logError(CCTV_LOG_SECTIONS.PLAYBACK, 'استریم آرشیو آغاز نشد', 'زمان تراکنش معتبر نیست.');
+      return;
+    }
+    const window = archiveWindow({ timestamp: when });
+    if (!window) {
+      setPlayState('error');
+      setPlayText(t('زمان تراکنش یا تنظیمات DVR معتبر نیست.'));
+      logError(CCTV_LOG_SECTIONS.PLAYBACK, 'استریم آرشیو آغاز نشد', 'بازهٔ زمانی ساخته نشد.');
+      return;
+    }
+    const port = Number(dvripPortOf(settings));
+    sampleRef.current = { bytes: 0, at: 0, lastAt: 0 };
+    setPlayState('running');
+    setReceived(null);
+    setFrames(null);
+    setSpeed(0);
+    setPlayText(t('در حال آماده‌سازی استریم آرشیو...'));
+    logInfo(
+      CCTV_LOG_SECTIONS.PLAYBACK,
+      'استریم آرشیو از دستگاه آغاز شد',
+      `پورت DVRIP: ${port} • کانال ${channel} • ${window.startTime} تا ${window.endTime} • ${
+        subStream ? 'استریم سبک' : 'استریم کامل'
+      }`,
+    );
+    const result = await streamArchive({
+      ip: settings.dvrIp,
+      port,
+      user: settings.dvrUser,
+      password: settings.dvrPassword,
+      channel,
+      streamType: subStream ? 1 : 0,
+      startMs: window.start,
+      endMs: window.end,
+    });
+    if (result?.ok && result.url) {
+      const opened = await openInVlc(result.url, { mimeType: 'video/*' });
+      if (opened.ok) {
+        setPlayState('running');
+        setPlayText(t('پخش آغاز شد؛ ادامهٔ تصویر هم‌زمان از دستگاه دریافت می‌شود.'));
+        logInfo(
+          CCTV_LOG_SECTIONS.PLAYBACK,
+          'استریم آرشیو به VLC سپرده شد',
+          `${result.file || ''} • ${subStream ? 'استریم سبک' : 'استریم کامل'}`,
+        );
+        return;
+      }
+      await stopArchive();
+      setPlayState('error');
+      setPlayText(t('استریم آماده شد ولی باز شدن VLC ممکن نشد.'));
+      logWarning(
+        CCTV_LOG_SECTIONS.PLAYBACK,
+        'باز شدن VLC برای استریم ممکن نشد',
+        `علت: ${opened.reason || 'unknown'}`,
+      );
+      return;
+    }
+    const reason = result?.reason || 'unknown';
+    setPlayState('error');
+    const detail = result?.message ? ` — ${result.message}` : '';
+    setPlayText(
+      t('استریم آرشیو ناموفق بود ({reason}{detail}). پورت DVRIP فعلی: {port}', {
+        reason,
+        detail,
+        port,
+      }),
+    );
+    logError(
+      CCTV_LOG_SECTIONS.PLAYBACK,
+      'استریم آرشیو ناموفق بود',
+      `علت: ${reason} • پورت DVRIP: ${port}`,
+    );
+  }, [
+    channel,
+    hasPassword,
+    settings.dvrIp,
+    settings.dvrPort,
+    settings.dvrUser,
+    settings.dvrPassword,
+    subStream,
+    t,
+    timestamp,
+    logInfo,
+    logWarning,
+    logError,
+  ]);
+
   const cancelClip = useCallback(async () => {
     await stopArchive();
     setPlayState('idle');
     setPlayText(t('دریافت لغو شد.'));
     setReceived(null);
+    setFrames(null);
+    setSpeed(0);
     setStage('');
+    sampleRef.current = { bytes: 0, at: 0, lastAt: 0 };
     logWarning(CCTV_LOG_SECTIONS.PLAYBACK, 'دریافت آرشیو لغو شد');
   }, [t, logWarning]);
 
@@ -458,8 +614,9 @@ export default function CctvPlayerScreen({ navigation, route }) {
     [logInfo],
   );
 
-  // Opening this screen IS the user's tap on the camera icon, so the primary
-  // archive download starts by itself when the device path is usable.
+  // Opening this screen IS the user's tap on the camera icon, so the archive
+  // starts by itself when the device path is usable — streaming first, because
+  // waiting for the whole clip is the complaint this path exists to fix.
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (autoStartedRef.current) return;
@@ -468,8 +625,8 @@ export default function CctvPlayerScreen({ navigation, route }) {
       return;
     }
     autoStartedRef.current = true;
-    playClip();
-  }, [nativeReady, playClip, sendToTv]);
+    streamClip();
+  }, [nativeReady, streamClip, sendToTv]);
 
   const copyRtsp = useCallback(async () => {
     if (!rtspUrl) return;
@@ -538,6 +695,53 @@ export default function CctvPlayerScreen({ navigation, route }) {
     },
     [t, logInfo, logWarning],
   );
+
+  // Guest/anonymous check. Playback without a password can only be enabled ON
+  // the recorder (DVRIP has no account-write call), so the honest thing is to
+  // measure what this device currently allows and then name the console menu.
+  const [guestProbe, setGuestProbe] = useState({ state: 'idle', text: '' });
+
+  const runGuestProbe = useCallback(async () => {
+    if (!cctvAvailable) {
+      setGuestProbe({
+        state: 'unavailable',
+        text: t('این آزمایش فقط در نسخهٔ نصبی برنامه امکان‌پذیر است.'),
+      });
+      return;
+    }
+    const port = Number(dvripPortOf(settings));
+    setGuestProbe({ state: 'running', text: t('در حال آزمایش حساب مهمان دستگاه...') });
+    const when = transactionTimestamp(timestamp);
+    const result = await probeGuest({
+      ip: settings.dvrIp,
+      port,
+      user: settings.dvrUser,
+      password: settings.dvrPassword,
+      channel,
+      startMs: when ? new Date(when).getTime() : Date.now(),
+    });
+    if (result?.guestUsable) {
+      setGuestProbe({
+        state: 'usable',
+        text: t(
+          'این دستگاه پخش بدون رمز را می‌پذیرد؛ آرشیو با لینک مهمان هم باز می‌شود. برای امنیت، رمز را در تنظیمات نگه دارید.',
+        ),
+      });
+      logInfo(CCTV_LOG_SECTIONS.PLAYBACK, 'دستگاه پخش مهمان را می‌پذیرد', `پورت DVRIP: ${port}`);
+      return;
+    }
+    setGuestProbe({
+      state: 'blocked',
+      text: t(
+        'این دستگاه پخش بدون رمز را نمی‌پذیرد و از برنامه هم قابل روشن‌کردن نیست. برای فعال‌کردن، روی خود دستگاه: منوی اصلی ← تنظیمات ← حساب‌ها/کاربران ← کاربر مهمان (Guest) را روشن کنید و رمز آن را خالی بگذارید؛ اگر گزینهٔ RTSP ← «دسترسی بدون احراز هویت» وجود داشت آن را هم روشن کنید. سپس همین آزمایش را تکرار کنید.',
+      ),
+    });
+    logWarning(
+      CCTV_LOG_SECTIONS.PLAYBACK,
+      'دستگاه پخش مهمان را نمی‌پذیرد',
+      'فعال‌سازی فقط از منوی خود دستگاه ممکن است.',
+    );
+  }, [channel, cctvAvailable, settings.dvrIp, settings.dvrPort, settings.dvrUser, settings.dvrPassword, t, timestamp, logInfo, logWarning]);
 
   const statusIcon =
     tvStatus === 'sent' ? 'checkmark-circle' : tvStatus === 'checking' ? 'hourglass-outline' : 'warning-outline';
@@ -614,6 +818,12 @@ export default function CctvPlayerScreen({ navigation, route }) {
               {t('دریافت شده: {mb} مگابایت', {
                 mb: (received.bytes / 1048576).toFixed(1),
               })}
+              {speed > 0
+                ? ` • ${t('سرعت')}: ${(speed / 1048576).toFixed(2)} ${t('مگابایت بر ثانیه')}`
+                : ''}
+              {frames && frames.done > 0
+                ? ` • ${t('فریم')}: ${frames.done}${frames.total ? ` / ${frames.total}` : ''}`
+                : ''}
             </Text>
           ) : null}
 
@@ -629,12 +839,35 @@ export default function CctvPlayerScreen({ navigation, route }) {
                 'برای پخش تضمینی آرشیو، رمز دوربین را در تنظیمات وارد کنید. بدون رمز، دستگاه فقط تصویر زنده می‌دهد.',
               )}
             </Text>
-          ) : null}
+          ) : (
+            <View style={styles.qualityRow}>
+              <TouchableOpacity
+                style={[styles.qualityChip, subStream ? styles.qualityChipOn : null]}
+                onPress={() => setSubStream(true)}
+                activeOpacity={0.85}
+                disabled={playState === 'running'}
+              >
+                <Text style={[styles.qualityChipText, subStream ? styles.qualityChipTextOn : null]}>
+                  {t('سبک (شروع سریع)')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.qualityChip, !subStream ? styles.qualityChipOn : null]}
+                onPress={() => setSubStream(false)}
+                activeOpacity={0.85}
+                disabled={playState === 'running'}
+              >
+                <Text style={[styles.qualityChipText, !subStream ? styles.qualityChipTextOn : null]}>
+                  {t('کامل (کیفیت اصلی)')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <View style={styles.btnRow}>
             <TouchableOpacity
               style={[styles.primaryBtn, playState === 'running' ? { opacity: 0.6 } : null]}
-              onPress={playClip}
+              onPress={streamClip}
               disabled={playState === 'running' || !nativeReady}
               activeOpacity={0.85}
             >
@@ -644,13 +877,18 @@ export default function CctvPlayerScreen({ navigation, route }) {
                 color={colors.white}
               />
               <Text style={styles.primaryBtnText}>
-                {playState === 'running' ? t('در حال دریافت...') : t('پخش آرشیو ضبط‌شده')}
+                {playState === 'running' ? t('در حال استریم...') : t('پخش آرشیو ضبط‌شده')}
               </Text>
             </TouchableOpacity>
             {playState === 'running' ? (
               <TouchableOpacity style={styles.secondaryBtn} onPress={cancelClip} activeOpacity={0.85}>
                 <Ionicons name="stop-circle-outline" size={15} color={colors.red} />
                 <Text style={styles.secondaryBtnText}>{t('لغو')}</Text>
+              </TouchableOpacity>
+            ) : nativeReady ? (
+              <TouchableOpacity style={styles.secondaryBtn} onPress={playClip} activeOpacity={0.85}>
+                <Ionicons name="download-outline" size={15} color={colors.primary} />
+                <Text style={styles.secondaryBtnText}>{t('دانلود کامل و پخش')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -761,6 +999,29 @@ export default function CctvPlayerScreen({ navigation, route }) {
             {t('اگر دستگاه به مهمان اجازهٔ پخش آرشیو بدهد این لینک بدون هیچ رمزی باز می‌شود.')}
           </Text>
         </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t('پخش بدون رمز (حساب مهمان)')}</Text>
+          <Text style={styles.cardHint}>
+            {t(
+              'این آزمایش فقط می‌خواند و چیزی روی دستگاه تغییر نمی‌دهد؛ اگر دستگاه اجازه بدهد، پخش بدون رمز هم ممکن می‌شود.',
+            )}
+          </Text>
+          <View style={styles.btnRow}>
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={runGuestProbe}
+              disabled={guestProbe.state === 'running'}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="person-circle-outline" size={15} color={colors.primary} />
+              <Text style={styles.secondaryBtnText}>
+                {guestProbe.state === 'running' ? t('در حال آزمایش...') : t('آزمایش دسترسی مهمان')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {guestProbe.text ? <Text style={styles.cardText}>{guestProbe.text}</Text> : null}
+        </View>
       </ScrollView>
     </View>
   );
@@ -808,6 +1069,19 @@ const styles = StyleSheet.create({
   },
   urlText: { fontSize: 10.5, color: colors.text, writingDirection: 'ltr', textAlign: 'left' },
   btnRow: { flexDirection: 'row-reverse', marginTop: 12 },
+  qualityRow: { flexDirection: 'row-reverse', marginTop: 10 },
+  qualityChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    borderRadius: radius.sm,
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    marginLeft: 6,
+  },
+  qualityChipOn: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  qualityChipText: { fontSize: 10.5, color: colors.muted, fontWeight: '700', ...rtl },
+  qualityChipTextOn: { color: colors.primary },
   primaryBtn: {
     flex: 1,
     flexDirection: 'row-reverse',
