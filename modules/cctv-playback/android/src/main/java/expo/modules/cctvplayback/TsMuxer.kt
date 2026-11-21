@@ -300,6 +300,21 @@ class TsMuxer(private val fps: Int = 25) {
     return body
   }
 
+  /**
+   * MPEG-2 CRC-32: polynomial 0x04C11DB7, initial value 0xFFFFFFFF, no input or
+   * output reflection, no final xor. This is the checksum PAT/PMT carry.
+   */
+  private fun crc32(data: ByteArray, from: Int, to: Int): Int {
+    var crc = -1
+    for (i in from until to) {
+      crc = crc xor ((data[i].toInt() and 0xff) shl 24)
+      for (bit in 0 until 8) {
+        crc = if (crc < 0) (crc shl 1) xor 0x04C11DB7 else crc shl 1
+      }
+    }
+    return crc
+  }
+
   private fun writeCrc(body: ByteArray, crcIndex: Int) {
     val crc = crc32(body, 0, crcIndex)
     body[crcIndex] = ((crc shr 24) and 0xff).toByte()
