@@ -89,6 +89,7 @@ console.log('unbound identifiers: checked');
 // ── 3. pure-logic unit checks ──────────────────────────────────────────────
 // Compile the ESM sources on the fly so plain `require` can load them here.
 const srcDir = path.join(ROOT, 'src');
+const cctvModuleDir = path.join(ROOT, 'modules/cctv-playback');
 const originalJsLoader = Module._extensions['.js'];
 Module._extensions['.js'] = function (module, filename) {
   if (filename.startsWith(srcDir)) {
@@ -878,6 +879,39 @@ try {
     cctvPlayerSrc.includes('پخش آرشیو ضبط‌شده (تضمینی)'),
     'the primary card states that the recorded archive is guaranteed',
   );
+
+  // Raw Annex-B H.264 is refused by VLC for Android: the stream and the
+  // downloaded clip must both be wrapped in MPEG-TS before a player sees them.
+  const tsMuxerSrc = fs.readFileSync(
+    path.join(cctvModuleDir, 'android/src/main/java/expo/modules/cctvplayback/TsMuxer.kt'),
+    'utf8',
+  );
+  assert.ok(tsMuxerSrc.includes('fun push(') && tsMuxerSrc.includes('fun finish()'),
+    'the TS muxer consumes chunks and flushes the last access unit');
+  assert.ok(tsMuxerSrc.includes('0x47'), 'the muxer emits MPEG-TS sync bytes');
+  assert.ok(tsMuxerSrc.includes('trimmed < 3'),
+    'only start-code padding is trimmed, never a zero tail of a NAL payload');
+
+  const serverSrc = fs.readFileSync(
+    path.join(cctvModuleDir, 'android/src/main/java/expo/modules/cctvplayback/ArchiveStreamServer.kt'),
+    'utf8',
+  );
+  assert.ok(serverSrc.includes('muxer.push(bytes)'),
+    'every DVRIP chunk is muxed before it reaches the player');
+  assert.ok(serverSrc.includes('video/mp2t'), 'the served stream declares the MPEG-TS type');
+  assert.ok(serverSrc.includes('.ts') && !serverSrc.includes('/archive.h264'),
+    'the stream URL is a .ts container, not raw H.264');
+  assert.ok(serverSrc.includes('exposeLan') && serverSrc.includes('archive-$token'),
+    'the LAN/TV URL carries a per-stream nonce');
+
+  const moduleSrc = fs.readFileSync(
+    path.join(cctvModuleDir, 'android/src/main/java/expo/modules/cctvplayback/CctvPlaybackModule.kt'),
+    'utf8',
+  );
+  assert.ok(moduleSrc.includes('muxToTs(') && moduleSrc.includes('"lanUrl"'),
+    'the downloaded clip is remuxed and the LAN URL is reported to JS');
+  assert.ok(cctvPlayerSrc.includes('lanUrl') && cctvPlayerSrc.includes('پخش روی تلویزیون از طریق شبکه'),
+    'the player exposes the TV/LAN playback card');
   assert.ok(
     !cctvPlayerSrc.includes('پخش آرشیو در VLC (بدون پنجرهٔ رمز)'),
     'the RTSP shape is no longer the primary card (it played LIVE on this firmware)',

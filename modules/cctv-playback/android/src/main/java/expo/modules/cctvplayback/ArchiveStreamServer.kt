@@ -18,22 +18,40 @@ import java.util.concurrent.atomic.AtomicBoolean
  * minutes of silence before the first picture).
  *
  * Design notes that matter:
- *  - loopback only (`127.0.0.1`), random port, one client — nothing is exposed
- *    on the network, and no credentials ever appear in this URL, so VLC cannot
- *    raise an authentication dialog;
- *  - the path ends in `.h264` because VLC picks its raw-H.264 demuxer from the
- *    extension for a stream with no container;
+ *  - one client, random port, no credentials in the URL, so the player cannot
+ *    raise an authentication dialog. Loopback by default; when `exposeLan` is on
+ *    it binds every interface for the TV and the path carries a per-stream nonce;
+ *  - the DVR sends raw Annex-B H.264, which VLC for Android refuses; every chunk
+ *    is therefore wrapped in MPEG-TS on the way out (`TsMuxer`) and served as
+ *    `/archive.ts`, a container every Android player reads from a socket;
  *  - a bounded queue gives real backpressure: if the player is slower than the
  *    DVR, the download stalls instead of growing memory without limit;
  *  - every chunk is flushed immediately, otherwise the player sits on a buffer
  *    that would only fill when the download ends — exactly the behaviour we are
  *    trying to remove.
  */
-class ArchiveStreamServer {
+class ArchiveStreamServer(
+  /** True when the phone's own network interfaces may reach the stream (TV). */
+  val exposeLan: Boolean = false
+) {
   companion object {
     private val END_OF_STREAM = ByteArray(0)
     private const val QUEUE_CHUNKS = 64
   }
+
+  private val muxer = TsMuxer()
+
+  /**
+   * Per-stream nonce. The stream is opened on the LAN for the TV, so the URL
+   * carries a one-shot key: knowing the port alone is not enough to pull the
+   * shop's footage off the network.
+   */
+  private val token = (1..4).joinToString("") {
+    String.format(java.util.Locale.US, "%02x", (Math.random() * 256).toInt())
+  }
+
+  /** Token in the PATH (not a query): players detect the demuxer from `.ts`. */
+  private val path: String get() = "archive-$token.ts"
 
   private val queue = LinkedBlockingQueue<ByteArray>(QUEUE_CHUNKS)
   private val closed = AtomicBoolean(false)
@@ -46,11 +64,19 @@ class ArchiveStreamServer {
 
   val port: Int get() = server?.localPort ?: 0
 
-  val url: String get() = "http://127.0.0.1:${port}/archive.h264"
+  /** Frames muxed so far (a frame = one access unit = one picture). */
+  val frames: Long get() = muxer.frames
+
+  val url: String get() = "http://127.0.0.1:$port/$path"
+
+  /** Same stream reachable from the LAN, for a TV/other player. Empty when off. */
+  fun lanUrl(host: String?): String =
+    if (exposeLan && !host.isNullOrEmpty()) "http://$host:$port/$path" else ""
 
   fun start() {
     if (server != null) return
-    val socket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+    val bind = if (exposeLan) null else InetAddress.getByName("127.0.0.1")
+    val socket = ServerSocket(0, 1, bind)
     // Bounded wait: a player that never connects must not leak a thread forever.
     socket.soTimeout = 5000
     server = socket
@@ -68,10 +94,18 @@ class ArchiveStreamServer {
         val accepted = peer ?: return@Thread
         client = accepted
         try { accepted.tcpNoDelay = true } catch (_: Exception) { }
-        readRequestHeaders(accepted)
+        if (!readRequestHeaders(accepted, token)) {
+          try {
+            accepted.getOutputStream().write(
+              "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .toByteArray(Charsets.US_ASCII)
+            )
+          } catch (_: Exception) { }
+          return@Thread
+        }
         val output = BufferedOutputStream(accepted.getOutputStream(), 64 * 1024)
         val header = "HTTP/1.1 200 OK\r\n" +
-          "Content-Type: video/h264\r\n" +
+          "Content-Type: video/mp2t\r\n" +
           "Connection: close\r\n" +
           "Cache-Control: no-store\r\n" +
           "Accept-Ranges: none\r\n\r\n"
@@ -92,8 +126,12 @@ class ArchiveStreamServer {
     }, "cctv-archive-stream").start()
   }
 
-  /** Consumes the request line + headers so the response is not written early. */
-  private fun readRequestHeaders(socket: Socket) {
+  /**
+   * Consumes the request line + headers so the response is not written early.
+   *
+   * @return true when the request carries this stream's nonce.
+   */
+  private fun readRequestHeaders(socket: Socket, expectedToken: String): Boolean {
     try {
       val input = socket.getInputStream()
       val builder = StringBuilder()
@@ -105,8 +143,11 @@ class ArchiveStreamServer {
         if (previous == '\n'.code && next == '\n'.code) break
         previous = next
       }
+      val request = builder.toString()
+      return request.contains("/archive-$expectedToken.ts")
     } catch (_: Exception) {
-      // Timeouts here are harmless: the response still goes out.
+      // A timeout here means no player: nothing to serve.
+      return false
     }
   }
 
@@ -118,6 +159,16 @@ class ArchiveStreamServer {
    */
   fun push(bytes: ByteArray): Boolean {
     if (bytes.isEmpty()) return !closed.get()
+    val packet = try {
+      muxer.push(bytes)
+    } catch (_: Exception) {
+      return !closed.get()
+    }
+    return enqueue(packet)
+  }
+
+  private fun enqueue(bytes: ByteArray): Boolean {
+    if (bytes.isEmpty()) return !closed.get()
     while (!closed.get()) {
       if (queue.offer(bytes, 200, TimeUnit.MILLISECONDS)) return true
     }
@@ -126,6 +177,7 @@ class ArchiveStreamServer {
 
   /** The recording ended normally; the player closes after the last frame. */
   fun finish() {
+    try { enqueue(muxer.finish()) } catch (_: Exception) { }
     try { queue.offer(END_OF_STREAM, 2, TimeUnit.SECONDS) } catch (_: Exception) { }
   }
 

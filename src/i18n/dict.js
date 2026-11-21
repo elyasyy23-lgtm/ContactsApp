@@ -580,6 +580,13 @@ Object.assign(en, {
   'لغو': 'Cancel',
   'پخش آرشیو ضبط‌شده (تضمینی)': 'Play the recorded archive (guaranteed)',
   'پخش آرشیو ضبط‌شده': 'Play the recorded archive',
+  'پخش روی تلویزیون از طریق شبکه': 'Play on the TV over the network',
+  'این نشانی تا وقتی این صفحه باز است زنده می‌ماند. در تلویزیون، ویدیو را از نشانی شبکه باز کنید:':
+    'This address stays live while this screen is open. On the TV, open the video from a network address:',
+  'گام‌ها: ۱) تلویزیون و گوشی روی یک وای‌فای باشند. ۲) در تلویزیون گزینهٔ «ورود نشانی» یا «DLNA/شبکه» را بزنید. ۳) همین نشانی را وارد کنید و پخش را آغاز کنید.':
+    'Steps: 1) TV and phone on the same Wi-Fi. 2) On the TV pick “Open network stream” or “DLNA/Network”. 3) Enter this address and start playback.',
+  'کپی نشانی': 'Copy address',
+  'آزمایش همین نشانی': 'Test this address',
   'تصویر ضبط‌شدهٔ همان بازه (۵ دقیقه قبل تا ۵ دقیقه بعد از تراکنش) مستقیماً از دستگاه گرفته و پخش می‌شود؛ پخش زنده هرگز جای آن را نمی‌گیرد.': 'The recorded footage of that exact window (5 minutes before to 5 minutes after the transaction) is fetched from the device and played — the live feed can never take its place.',
   'دریافت آرشیو از دستگاه فقط در نسخهٔ نصبی فعال است؛ در Expo Go امکان اتصال به دستگاه وجود ندارد.': 'Fetching the archive from the device works only in the installed build; Expo Go cannot reach the device.',
   'برای پخش تضمینی آرشیو، رمز دوربین را در تنظیمات وارد کنید. بدون رمز، دستگاه فقط تصویر زنده می‌دهد.': 'To play the archive reliably, enter the camera password in Settings. Without it the device only serves the live picture.',

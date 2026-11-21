@@ -884,3 +884,35 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
 - verify.js gained ordering/regression asserts: native card exists, `playArchive({` used, auto-start
   reaches `playClip()`, old RTSP title gone, advanced section renders BELOW the guaranteed card.
   `npm run verify` = 55/55.
+
+## 2026-11-21 — archive STREAMS while it downloads (no more "wait for 40 MB")
+- Owner complaint after the native path shipped: it downloaded the whole window (41 MB+) before the
+  first picture; XMEye shows the archive almost instantly. The DVRIP `OPPlayBack` conversation is one
+  continuous Annex-B stream, so waiting was a choice, not a limit.
+- NEW `ArchiveStreamServer.kt` (same package): loopback HTTP server on `127.0.0.1`, random port,
+  ONE client, bounded `LinkedBlockingQueue(64)` (that is the backpressure — a slow player stalls the
+  download instead of growing memory), per-packet `flush()`, `video/h264`, path `/archive.h264`
+  (VLC picks its raw-H.264 demuxer from the extension), `soTimeout=5000` × ≤60 retries for the player
+  to connect, `END_OF_STREAM` sentinel on `finish()`, `close()` idempotent, serving thread closes
+  itself. No credentials ever appear in this URL → VLC cannot raise its login dialog.
+- `DvripClient.kt`: ctor gained `streamType` (0 main / 1 sub), `pump()` shared by download and stream,
+  `streamRange(file, startMs, frameBudget, byteLimit, onProgress, emit)`, `frames` counter (NAL 1/5),
+  `readConfig(name)` (OPConfig 1040, READ-ONLY) and a 1 MB socket receive buffer.
+- `CctvPlaybackModule.kt`: `AsyncFunction("streamArchive")` resolves `{ok,url,port,file,begin,end,
+  segments,streamType,startMs,endMs}` **BEFORE** the download starts (settled=true set before
+  `promise.resolve`), then streams segment by segment; later failures arrive as `error` events only.
+  `activeStream` is cleared in `finally` (the serving thread closes itself on a clean finish).
+  `AsyncFunction("probeGuest")` tries `guest/""`, `guest/guest`, `anonymous/""`, `admin/""`, queries
+  the file list and reads Users/General/NetWork — **never writes to the recorder** (DVRIP has no
+  account-write call, so guest access can only be enabled on the box).
+- `CctvPlayerScreen.js`: streaming is the primary action and the auto-start path; 500 ms speed
+  sampling (`sampleRef`, never a setState per packet — DVRIP sends hundreds/s), frames readout,
+  light/full quality chips (`streamType`), full-download fallback button, guest probe card. An
+  `error` event that is not `cancelled` now sets the error state and text instead of freezing.
+- Test APK (NOT published): branch `feat/cctv-debt-clip`, CI run `44887602705` SUCCESS;
+  `/storage/emulated/0/Download/HesabYar-cctv-stream-test.apk` 49,319,221 B,
+  sha256 `c18b3b56d2072fc74cbe72b1dad389b962b80202a03a1ca8a74faedf3424b922`, 1.5.0/code 12,
+  same cert `fac61745…` (installs in place). Proof inside the APK: dex has `archive.h264`,
+  `cctv-archive-stream`, `guestUsable`, `playback-ok`; bundle (Hermes → UTF-16LE) has
+  «در حال استریم», «سبک (شروع سریع)», «آزمایش دسترسی مهمان».
+- Release gate still CLOSED: no version bump, no tag, no site change.

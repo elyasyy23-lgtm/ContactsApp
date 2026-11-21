@@ -46,6 +46,35 @@ class CctvPlaybackModule : Module() {
   }
 
   /** Keeps the cache bounded: only the two newest clips survive. */
+  /**
+   * Rewrites a raw Annex-B recording as MPEG-TS so any Android player accepts
+   * it. Reads in 64 KB blocks; a ten minute clip is ~40 MB, so memory stays flat.
+   */
+  private fun muxToTs(source: java.io.File): java.io.File {
+    val target = java.io.File(source.parentFile, source.nameWithoutExtension + ".ts")
+    val muxer = TsMuxer()
+    java.io.FileInputStream(source).use { input ->
+      java.io.FileOutputStream(target).use { output ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+          val read = input.read(buffer)
+          if (read <= 0) break
+          val piece = if (read == buffer.size) buffer else buffer.copyOf(read)
+          val ts = muxer.push(piece)
+          if (ts.isNotEmpty()) output.write(ts)
+        }
+        val tail = muxer.finish()
+        if (tail.isNotEmpty()) output.write(tail)
+      }
+    }
+    if (target.length() <= 0L) {
+      try { target.delete() } catch (_: Exception) { }
+      throw DvripException("remux produced an empty file")
+    }
+    try { source.delete() } catch (_: Exception) { }
+    return target
+  }
+
   private fun pruneClips(directory: File) {
     val clips = directory.listFiles { file -> file.isFile && file.name.startsWith("clip-") }
       ?.sortedByDescending { it.lastModified() } ?: return
@@ -59,6 +88,30 @@ class CctvPlaybackModule : Module() {
   }
 
   private fun asText(value: Any?): String = (value as? String)?.trim() ?: ""
+
+  /**
+   * The phone's own LAN address, used to hand the stream URL to a TV. Returns
+   * null when only mobile data is up, in which case nothing is advertised.
+   */
+  private fun localIpv4(): String? {
+    try {
+      val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
+      var fallback: String? = null
+      for (nic in java.util.Collections.list(interfaces)) {
+        if (!nic.isUp || nic.isLoopback) continue
+        for (address in java.util.Collections.list(nic.inetAddresses)) {
+          if (address is java.net.Inet4Address && !address.isLoopbackAddress) {
+            val host = address.hostAddress ?: continue
+            if (address.isSiteLocalAddress) return host
+            if (fallback == null) fallback = host
+          }
+        }
+      }
+      return fallback
+    } catch (_: Exception) {
+      return null
+    }
+  }
 
   /**
    * One RTSP DESCRIBE on a plain socket.
@@ -254,12 +307,22 @@ class CctvPlaybackModule : Module() {
             mapOf("type" to "stage", "stage" to "downloaded", "bytes" to written)
           )
 
+          // VLC for Android will not open a containerless `.h264` file, so the
+          // download is wrapped in MPEG-TS first; the player then gets a normal
+          // recording it can also seek in.
+          val playable = try {
+            muxToTs(target)
+          } catch (_: Exception) {
+            null
+          }
+
           // JS publishes the clip through the FileProvider and opens VLC. VLC
           // is the player — this module only fetches the recording.
           promise.resolve(
             mapOf(
               "ok" to true,
-              "path" to target.absolutePath,
+              "path" to (playable?.absolutePath ?: target.absolutePath),
+              "mime" to if (playable == null) "video/avc" else "video/mp2t",
               "file" to segments.first().fileName,
               "bytes" to written,
               "begin" to segments.first().begin,
@@ -345,8 +408,10 @@ class CctvPlaybackModule : Module() {
         return@AsyncFunction
       }
 
+      val exposeLan = options["exposeLan"] != false
+
       Thread {
-        val server = ArchiveStreamServer()
+        val server = ArchiveStreamServer(exposeLan)
         activeStream = server
         var settled = false
         var queryClient: DvripClient? = null
@@ -389,6 +454,8 @@ class CctvPlaybackModule : Module() {
               "ok" to true,
               "streaming" to true,
               "url" to server.url,
+              "lanUrl" to server.lanUrl(localIpv4()),
+              "mime" to "video/mp2t",
               "port" to server.port,
               "file" to segments.first().fileName,
               "begin" to segments.first().begin,

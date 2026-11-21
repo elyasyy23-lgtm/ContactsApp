@@ -234,6 +234,7 @@ export default function CctvPlayerScreen({ navigation, route }) {
   const [speed, setSpeed] = useState(0);
   const [frames, setFrames] = useState(null);
   const [subStream, setSubStream] = useState(true);
+  const [lanUrl, setLanUrl] = useState('');
 
   const nativeReady = cctvAvailable && hasPassword;
 
@@ -354,7 +355,9 @@ export default function CctvPlayerScreen({ navigation, route }) {
       endMs: window.end,
     });
     if (result?.ok) {
-      const played = await openLocalFileInVlc(result.path, { mimeType: 'video/*' });
+      const played = await openLocalFileInVlc(result.path, {
+        mimeType: result.mime || 'video/mp2t',
+      });
       if (played.ok) {
         setPlayState('done');
         setPlayText(
@@ -475,7 +478,8 @@ export default function CctvPlayerScreen({ navigation, route }) {
       endMs: window.end,
     });
     if (result?.ok && result.url) {
-      const opened = await openInVlc(result.url, { mimeType: 'video/*' });
+      setLanUrl(result.lanUrl || '');
+      const opened = await openInVlc(result.url, { mimeType: result.mime || 'video/mp2t' });
       if (opened.ok) {
         setPlayState('running');
         setPlayText(t('پخش آغاز شد؛ ادامهٔ تصویر هم‌زمان از دستگاه دریافت می‌شود.'));
@@ -526,8 +530,19 @@ export default function CctvPlayerScreen({ navigation, route }) {
     logError,
   ]);
 
+  const copyLan = useCallback(async () => {
+    if (!lanUrl) return;
+    try {
+      await Clipboard.setStringAsync(lanUrl);
+      logInfo(CCTV_LOG_SECTIONS.PLAYBACK, 'نشانی استریم برای تلویزیون کپی شد');
+    } catch (error) {
+      logWarning(CCTV_LOG_SECTIONS.PLAYBACK, 'کپی نشانی استریم ناموفق بود');
+    }
+  }, [lanUrl, logInfo, logWarning]);
+
   const cancelClip = useCallback(async () => {
     await stopArchive();
+    setLanUrl('');
     setPlayState('idle');
     setPlayText(t('دریافت لغو شد.'));
     setReceived(null);
@@ -894,6 +909,42 @@ export default function CctvPlayerScreen({ navigation, route }) {
           </View>
         </View>
 
+        {lanUrl ? (
+          <View style={styles.card}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="tv-outline" size={19} color={colors.primary} />
+              <Text style={styles.cardTitle}>{t('پخش روی تلویزیون از طریق شبکه')}</Text>
+            </View>
+            <Text style={styles.cardHint}>
+              {t(
+                'این نشانی تا وقتی این صفحه باز است زنده می‌ماند. در تلویزیون، ویدیو را از نشانی شبکه باز کنید:',
+              )}
+            </Text>
+            <Text selectable style={styles.tvUrl}>
+              {lanUrl}
+            </Text>
+            <Text style={styles.cardHint}>
+              {t(
+                'گام‌ها: ۱) تلویزیون و گوشی روی یک وای‌فای باشند. ۲) در تلویزیون گزینهٔ «ورود نشانی» یا «DLNA/شبکه» را بزنید. ۳) همین نشانی را وارد کنید و پخش را آغاز کنید.',
+              )}
+            </Text>
+            <View style={styles.btnRow}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={copyLan} activeOpacity={0.85}>
+                <Ionicons name="copy-outline" size={15} color={colors.primary} />
+                <Text style={styles.secondaryBtnText}>{t('کپی نشانی')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryBtn}
+                onPress={() => openInVlc(lanUrl, { mimeType: 'video/mp2t' })}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="open-outline" size={15} color={colors.primary} />
+                <Text style={styles.secondaryBtnText}>{t('آزمایش همین نشانی')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <View style={styles.cardTitleRow}>
             <Ionicons name={statusIcon} size={19} color={statusColor} />
@@ -1058,6 +1109,18 @@ const styles = StyleSheet.create({
   cardTitleRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8 },
   cardTitle: { flex: 1, fontSize: 13.5, fontWeight: '800', ...rtl },
   cardText: { fontSize: 11.5, color: colors.textSoft, lineHeight: 19, marginTop: 10, ...rtl },
+  tvUrl: {
+    fontSize: 12.5,
+    lineHeight: 20,
+    color: colors.primary,
+    textAlign: 'left',
+    writingDirection: 'ltr',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 6,
+  },
   cardHint: { fontSize: 10.5, color: colors.muted, lineHeight: 17, marginTop: 8, ...rtl },
   urlBox: {
     backgroundColor: colors.bg,
