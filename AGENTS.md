@@ -1,3 +1,14 @@
+## Weekly Friday 10:00 SMS — AUTHORITATIVE template (2026-11-22)
+- Owner's original request text was recovered verbatim from the session DB (`part.id = prt_203b256c80014L2kCITkYy4hiL` in `~/.local/share/zyvo/opencode.db`). Vault note had a CORRUPTED copy (`_for this`, no ZWNJ, fullwidth commas) — ignore it.
+- Exact template (U+200C ZWNJ in «جمعهتان» / «میشود» / «میباشد», U+060C comma in «تسویه،» / «واریز،», correct «برای این شماره»):
+  `"{CustomerName} عزیز، صبح جمعه‌تان بخیر.\nامیدواریم آخر هفته خوبی داشته باشید.\nیادآوری می‌شود بدهی شما {Amount} تومان می‌باشد.\nجهت تسویه، لطفاً مبلغ را به شماره کارت زیر واریز نمایید:\n{CardNumber}\nبه نام: بهرام یعقوبی\nلطفاً پس از واریز، متن رسید تراکنش را برای این شماره ارسال نمایید.\nبا تشکر از همکاری شما"`
+- Weekly is SEPARATE from the existing crossing-threshold `buildReminder()` in `src/utils/smsParser.js`; keep that path + once-per-debt latch untouched. Weekly = disabled by default, Friday 10:00 slot, debt strictly > 1,000 ledger units (1,000,000 Toman), current balance rechecked at send time, one send per customer per week slot.
+- Scheduling decision (owner constraint 2026-11-22): JS timers alone are NOT sufficient; JS builds a fresh snapshot, then the local `sms-reader` native module owns an `AlarmManager` RTC_WAKEUP alarm + boot receiver and rechecks balance/slot/latch at send time. JS timers only resync.
+- Per-customer latch decision (2026-11-22): the week marker must be per CUSTOMER, not one shop-wide settings flag — `weeklyReminderDecision({ sentWeek })` is called per contact; native keeps its own `contactId -> slot` sent map and JS mirrors it back via `weeklySmsSentWeek` on each customer. Settings stores only the enabled toggler.
+- Verified 2026-11-22: `src/utils/weeklyReminder.js` template matches authoritative source (`311 chars`, 3 U+200C, 3 U+060C, 7 newlines, `MATCH True`); Babel-hook probe confirmed balance `1001` -> `send`, `1000` -> `none`, amount `1250` -> `۱٬۲۵۰٬۰۰۰ تومان`. Plain Node ESM `require` fails on extensionless `./format`; verification must use the same Babel CommonJS hook as `scripts/verify.js`.
+- Release gate CLOSED: no version bump / commit / push / tag / CI / APK until owner confirms Expo Go (`exp://127.0.0.1:8082`).
+- 2026-11-23 weekly UI guard DONE: `src/screens/SettingsScreen.js` imports/uses `silentSmsAvailable`; switch disabled + `weeklySmsState` when native SMS unavailable. `npm run verify` = 57/57 ALL CHECKS PASSED; `TASK.md` weekly block updated; no release authority.
+
 ## CCTV archive URL: `real_stream` means LIVE (2026-11-21)
 - Archive URLs MUST NOT contain `real_stream` — on a Xiongmai DVR that marker makes it serve the live
   feed and ignore `starttime`/`endtime` (owner saw today's picture for an old transaction).
@@ -915,4 +926,37 @@ Local build is wired up instead (full recipe in skill `termux-android-apk-build`
   same cert `fac61745…` (installs in place). Proof inside the APK: dex has `archive.h264`,
   `cctv-archive-stream`, `guestUsable`, `playback-ok`; bundle (Hermes → UTF-16LE) has
   «در حال استریم», «سبک (شروع سریع)», «آزمایش دسترسی مهمان».
+- Release gate still CLOSED: no version bump, no tag, no site change.
+
+### 2026-11-21 — MPEG-TS remux: VLC cannot play raw H.264 (owner report)
+Owner test of the streaming APK: the DVRIP archive WAS found and handed to VLC, but nothing played
+(`/idea0/2026-11-20/001/21.00.00-22.00.00[R][@1396c][6].h264` in the handler). Cause: **VLC for
+Android refuses a containerless Annex-B H.264 elementarstream** — it needs a container.
+Fix shipped (commit `25c864e`, branch `feat/cctv-debt-clip`, CI run 44892735431 SUCCESS →
+`/storage/emulated/0/Download/HesabYar-cctv-ts.apk` 49,322,321 B, sha256
+`006a3f0581c2138b1ad5dda8bf4337a870be49fab663906f42eb83edcc2c6ee8`, 1.5.0/code 12, cert `fac61745…`):
+- NEW `TsMuxer.kt` — dependency-free Annex-B → **MPEG-TS**: PAT(16 B)/PMT(21 B, stream_type 0x1B)
+  with MPEG-2 CRC-32, one PES per access unit with a PTS (step 90000/fps, default 25), PCR on the
+  first packet (pts−3600), PSI repeated every 25 frames, NAL reassembly across DVRIP chunk edges.
+  Access units come from an AUD (type 9) or `first_mb_in_slice == 0` (types 1/5); SPS/PPS/SEI are
+  buffered as a prefix for the next picture. **MP4 was rejected on purpose**: its `moov` is written
+  after the last frame, so a still-downloading clip cannot be played.
+- `ArchiveStreamServer` now muxes every chunk and serves `/archive-<nonce>.ts` as `video/mp2t`
+  (path nonce, not a query, so players pick the TS demuxer from the extension). `playArchive()`
+  remuxes the downloaded clip to `.ts` before it reaches the player (`muxToTs`, 64 KB blocks).
+- **TV/LAN playback**: `exposeLan` binds every interface, `lanUrl` = `http://<phone-ip>:<port>/archive-<nonce>.ts`,
+  shown on the player screen as a copyable card (steps: same Wi-Fi → TV "open network stream" → paste).
+- LESSONS (both cost a CI cycle):
+  1. **Trailing-zero trimming must be bounded** — a 200 KB all-zero IDR had its whole payload cut to
+     3 bytes when the trim loop removed *every* trailing `0x00`. Only 3 bytes of a 4-byte start code
+     may be trimmed (`trimmed < 3`); a NAL payload is allowed to end in zeros.
+  2. **Termux cannot compile Kotlin — the FIRST CI run is the compiler.** `crc32()` was referenced but
+     never written (the Python mirror that validated the TS output had it); CI failed in 6 min with
+     `Unresolved reference 'crc32'`. Always mirror new Kotlin algorithms in Python first (that found the
+     zero-trim bug) and expect one compile round-trip.
+- Validation without a device: Python mirror of the muxer (`$TMPDIR/zyvo/tsmux/mirror.py` + `check*.py`)
+  → 60 PES, PTS spacing 3600, CC continuity, sync 0x47, CRC cross-checked against a table-driven
+  reference (PAT `0x2AB104B2`, PMT `0x15BD4D56`).
+- OPEN RISK: fps is assumed 25 (PAL). A 12 fps substream would play ~2× fast; if the owner reports
+  speed, expose the rate (or parse SPS VUI timing) instead of guessing.
 - Release gate still CLOSED: no version bump, no tag, no site change.

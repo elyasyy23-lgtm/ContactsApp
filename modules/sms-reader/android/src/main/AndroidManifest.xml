@@ -3,6 +3,8 @@
   <uses-permission android:name="android.permission.READ_SMS" />
   <!-- Silent reminder sending (SmsManager.sendTextMessage, no UI). -->
   <uses-permission android:name="android.permission.SEND_SMS" />
+  <!-- Re-arm the weekly Friday 10:00 alarm after a reboot or app update. -->
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
   <application>
     <!-- Bank SMS arrive as a broadcast. The receiver stores every message in
@@ -15,6 +17,21 @@
       android:permission="android.permission.BROADCAST_SMS">
       <intent-filter android:priority="999">
         <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+      </intent-filter>
+    </receiver>
+
+    <!-- Re-arms and runs the weekly Friday 10:00 debt reminder in native code. -->
+    <receiver
+      android:name="expo.modules.smsreader.WeeklyReminderReceiver"
+      android:enabled="true"
+      android:exported="false">
+      <intent-filter android:priority="999">
+        <action android:name="expo.modules.smsreader.WEEKLY_REMINDER" />
+      </intent-filter>
+      <intent-filter android:priority="999">
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
       </intent-filter>
     </receiver>
   </application>

@@ -17,6 +17,12 @@ const EMPTY = {
   cardNumber: '',
   shopName: '',
   appLock: false,
+  // Weekly debt reminder. OFF until the owner opts in.
+  // Configurable weekday (0=Sun..6=Sat), hour (0-23), minute (0-59). Defaults: Friday 10:00.
+  weeklySmsEnabled: false,
+  weeklyWeekday: 5,
+  weeklyHour: 10,
+  weeklyMinute: 0,
   // Phone numbers whose bank SMS the shop wants the app to ignore completely.
   // Empty by default: every sender is processed until the owner adds one.
   excludedSmsSenders: [],
@@ -44,6 +50,23 @@ function normalize(raw) {
     // The `reminderAutoSend` field was removed 2026-11-10 — reminders are
     // manual-only now (per-customer `reminderEnabled` on each contact).
     appLock: Boolean(raw?.appLock),
+    weeklySmsEnabled: Boolean(raw?.weeklySmsEnabled),
+    // Weekly schedule: weekday 0=Sun..6=Sat, hour 0-23, minute 0-59. Defaults Fri 10:00.
+    weeklyWeekday: (() => {
+      const n = Number(raw?.weeklyWeekday);
+      if (!Number.isFinite(n) || n < 0 || n > 6) return EMPTY.weeklyWeekday;
+      return Math.trunc(n);
+    })(),
+    weeklyHour: (() => {
+      const n = Number(raw?.weeklyHour);
+      if (!Number.isFinite(n) || n < 0 || n > 23) return EMPTY.weeklyHour;
+      return Math.trunc(n);
+    })(),
+    weeklyMinute: (() => {
+      const n = Number(raw?.weeklyMinute);
+      if (!Number.isFinite(n) || n < 0 || n > 59) return EMPTY.weeklyMinute;
+      return Math.trunc(n);
+    })(),
     // Digits-only, trimmed, de-duplicated. Anything non-numeric is stripped so
     // "+98 912…", "0912…" and "912…" collapse to one entry.
     excludedSmsSenders: Array.isArray(raw?.excludedSmsSenders)

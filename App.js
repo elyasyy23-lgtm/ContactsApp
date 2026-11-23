@@ -31,6 +31,7 @@ import CalculatorScreen from './src/screens/CalculatorScreen';
 import LockScreen from './src/screens/LockScreen';
 import AppDrawer from './src/components/AppDrawer';
 import UpdateNotice from './src/components/UpdateNotice';
+import WeeklyReminderSync from './src/components/WeeklyReminderSync';
 import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
@@ -179,6 +180,7 @@ export default function App() {
                 <ContactsProvider>
                   <SmsInboxProvider>
                     <CctvDiagnosticsProvider>
+                      <WeeklyReminderSync />
                       <StatusBar style="light" />
                       <RootNavigator />
                       <UpdateNotice />

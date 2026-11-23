@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
 import { groupCard, money, toFa } from '../utils/format';
 import { buildReminder } from '../utils/smsParser';
+import { silentSmsAvailable } from '../utils/smsSend';
 import { parseBackup } from '../utils/backup';
 import { exportBackup, exportCsv, pickBackupFile } from '../utils/exports';
 import { useSettings } from '../store/SettingsContext';
@@ -98,6 +99,10 @@ export default function SettingsScreen({ navigation }) {
   const [cardNumber, setCardNumber] = useState(settings.cardNumber || '');
   const [shopName, setShopName] = useState(settings.shopName || '');
   const [newSender, setNewSender] = useState('');
+  // Weekly schedule state
+  const [weeklyWeekday, setWeeklyWeekday] = useState(Number(settings.weeklyWeekday) || 5);
+  const [weeklyHour, setWeeklyHour] = useState(Number(settings.weeklyHour) || 10);
+  const [weeklyMinute, setWeeklyMinute] = useState(Number(settings.weeklyMinute) || 0);
   const [dvrIp, setDvrIp] = useState(settings.dvrIp || '');
   const [dvrPort, setDvrPort] = useState(settings.dvrPort || '34567');
   const [rtspPort, setRtspPort] = useState(settings.rtspPort || '554');
@@ -314,6 +319,17 @@ export default function SettingsScreen({ navigation }) {
         ? t('اجازه دسترسی به پیامک داده نشده')
         : t('غیرفعال');
 
+  const WEEKDAY_LABELS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+
+  const weeklySmsState = !silentSmsAvailable
+    ? t('در Expo Go فعال نیست — نیازمند نسخه APK')
+    : settings.weeklySmsEnabled
+      ? t('فعال — هر {day} ساعت {time} ارسال میشود', {
+          day: WEEKDAY_LABELS[settings.weeklyWeekday] || WEEKDAY_LABELS[5],
+          time: `${String(settings.weeklyHour).padStart(2, '0')}:${String(settings.weeklyMinute).padStart(2, '0')}`,
+        })
+      : t('غیرفعال — در صورت تمایل روشن کنید');
+
   // ── Backup & Data ────────────────────────────────────────────────────────
   // The file is handed to the Android share sheet; from there the user saves
   // it into Download (or sends it via WhatsApp/Telegram/Drive).
@@ -481,6 +497,9 @@ export default function SettingsScreen({ navigation }) {
       myName: myName.trim(),
       cardNumber: digits,
       shopName: shopName.trim(),
+      weeklyWeekday: weeklyWeekday,
+      weeklyHour: weeklyHour,
+      weeklyMinute: weeklyMinute,
       dvrIp: dvrIpValue,
       dvrPort: dvrPortValue,
       rtspPort: rtspPortValue,
@@ -701,6 +720,133 @@ export default function SettingsScreen({ navigation }) {
             <Ionicons name="checkmark-circle-outline" size={19} color={colors.white} />
             <Text style={styles.saveText}>{t('ذخیره تنظیمات')}</Text>
           </TouchableOpacity>
+
+          <View style={styles.weeklyCard}>
+            <View style={styles.weeklyHead}>
+              <View
+                style={[
+                  styles.weeklyIcon,
+                  {
+                    backgroundColor: silentSmsAvailable && settings.weeklySmsEnabled
+                      ? colors.greenSoft
+                      : colors.amberSoft,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={silentSmsAvailable && settings.weeklySmsEnabled ? 'calendar-outline' : 'calendar-clear-outline'}
+                  size={17}
+                  color={silentSmsAvailable && settings.weeklySmsEnabled ? colors.green : colors.amber}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.weeklyTitle}>{t('یادآوری هفتگی بدهی')}</Text>
+                <Text style={styles.weeklyState}>{weeklySmsState}</Text>
+              </View>
+              <Switch
+                accessibilityLabel={t('یادآوری هفتگی بدهی')}
+                value={Boolean(silentSmsAvailable && settings.weeklySmsEnabled)}
+                onValueChange={(value) => {
+                  if (silentSmsAvailable) saveSettings({ weeklySmsEnabled: value });
+                }}
+                trackColor={{ false: colors.border, true: colors.greenSoft }}
+                thumbColor={silentSmsAvailable && settings.weeklySmsEnabled ? colors.green : colors.white}
+                ios_backgroundColor={colors.border}
+                disabled={!silentSmsAvailable}
+              />
+            </View>
+            {settings.weeklySmsEnabled && silentSmsAvailable && (
+              <View style={styles.weeklySchedule}>
+                <View style={styles.scheduleRow}>
+                  <Text style={styles.scheduleLabel}>{t('روز هفته')}</Text>
+                  <View style={styles.weekdayRow}>
+                    {WEEKDAY_LABELS.map((day, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.weekdayBtn,
+                          weeklyWeekday === index && styles.weekdayBtnActive,
+                        ]}
+                        onPress={() => setWeeklyWeekday(index)}
+                      >
+                        <Text
+                          style={[
+                            styles.weekdayText,
+                            weeklyWeekday === index && styles.weekdayTextActive,
+                          ]}
+                        >
+                          {day}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <View style={styles.scheduleRow}>
+                  <Text style={styles.scheduleLabel}>{t('زمان ارسال')}</Text>
+                  <View style={styles.timeRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      style={[styles.timeBtn, weeklyHour === 0 && styles.timeBtnActive]}
+                      onPress={() => setWeeklyHour(0)}
+                    >
+                      <Text style={[
+                        styles.timeText,
+                        weeklyHour === 0 && styles.timeTextActive,
+                      ]}>
+                        {t('بامداد')}
+                      </Text>
+                    </TouchableOpacity>
+                    <View style={styles.timeInputWrap}>
+                      <TextInput
+                        style={styles.timeInput}
+                        value={String(weeklyHour).padStart(2, '0')}
+                        onChangeText={(v) => {
+                          const n = parseInt(v.replace(/\D/g, ''), 10);
+                          if (!Number.isNaN(n) && n >= 0 && n <= 23) setWeeklyHour(n);
+                        }}
+                        maxLength={2}
+                        keyboardType="number-pad"
+                        textAlign="center"
+                        placeholder="00"
+                      />
+                      <Text style={styles.timeColon}>:</Text>
+                      <TextInput
+                        style={styles.timeInput}
+                        value={String(weeklyMinute).padStart(2, '0')}
+                        onChangeText={(v) => {
+                          const n = parseInt(v.replace(/\D/g, ''), 10);
+                          if (!Number.isNaN(n) && n >= 0 && n <= 59) setWeeklyMinute(n);
+                        }}
+                        maxLength={2}
+                        keyboardType="number-pad"
+                        textAlign="center"
+                        placeholder="00"
+                      />
+                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      style={[styles.timeBtn, weeklyHour >= 12 && styles.timeBtnActive]}
+                      onPress={() => setWeeklyHour(12)}
+                    >
+                      <Text style={[
+                        styles.timeText,
+                        weeklyHour >= 12 && styles.timeTextActive,
+                      ]}>
+                        {t('عصر')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+            <Text style={styles.weeklyHint}>
+              {t('برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، هر {day} ساعت {time} یک پیامک خودکار ارسال میشود. این قابلیت فقط در نسخه APK موجود است و هر مشتری در هفته یک بار پیامک میگیرد.', {
+                  day: WEEKDAY_LABELS[settings.weeklyWeekday] || WEEKDAY_LABELS[5],
+                  time: `${String(settings.weeklyHour).padStart(2, '0')}:${String(settings.weeklyMinute).padStart(2, '0')}`,
+                })}
+            </Text>
+          </View>
 
           <Text style={styles.sectionTitle}>{t('ثبت خودکار واریزها')}</Text>
           <View style={styles.smsCard}>
@@ -1007,6 +1153,131 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   saveText: { color: colors.white, fontSize: 15.5, fontWeight: '800', marginRight: 8 },
+
+  weeklyCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginTop: 18,
+    ...shadows.card,
+  },
+  weeklyHead: { flexDirection: 'row-reverse', alignItems: 'center' },
+  weeklyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
+  weeklyTitle: { fontSize: 13.5, fontWeight: '800', color: colors.text, ...rtl },
+  weeklyState: { fontSize: 11, color: colors.textSoft, marginTop: 3, ...rtl },
+  weeklyHint: { fontSize: 11.5, color: colors.muted, lineHeight: 19, marginTop: 10, ...rtl },
+
+  weeklySchedule: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  scheduleRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  scheduleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+    marginLeft: 10,
+    minWidth: 70,
+    ...rtl,
+  },
+  weekdayRow: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  weekdayBtn: {
+    height: 32,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    marginLeft: 4,
+    marginTop: 4,
+    minWidth: 56,
+  },
+  weekdayBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  weekdayText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.textSoft,
+  },
+  weekdayTextActive: {
+    color: colors.white,
+  },
+  timeRow: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+  },
+  timeBtn: {
+    height: 32,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    marginLeft: 4,
+    minWidth: 56,
+  },
+  timeBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  timeText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.textSoft,
+  },
+  timeTextActive: {
+    color: colors.white,
+  },
+  timeInputWrap: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeInput: {
+    width: 36,
+    height: 32,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
+    fontSize: 13,
+    color: colors.text,
+    textAlign: 'center',
+    writingDirection: 'ltr',
+    marginHorizontal: 4,
+  },
+  timeColon: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.text,
+    marginHorizontal: 2,
+  },
 
   smsCard: {
     backgroundColor: colors.card,

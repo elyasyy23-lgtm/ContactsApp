@@ -18,6 +18,22 @@ STATUS 2026-11-20:
   to Download, then bump central `ContactsApp/version.json` to 1.5.1 and revalidate live.
 - No version bump, commit, push, tag, CI build, or APK delivery has been done yet.
 
+### ACTIVE LOCAL TASK (2026-11-22) — weekly Friday 10:00 silent SMS reminder
+GOAL: add a separate weekly Friday 10:00 AM silent SMS reminder for debts above
+1,000,000 Toman using the exact vault template and a duplicate-safe week latch.
+This is LOCAL-ONLY; do not touch the CCTV release gate above. No version bump,
+push, tag, CI build, or APK delivery for this feature.
+
+- [x] Register this weekly Friday SMS task in `TASK.md` without touching the CCTV gate.
+- [x] Finish targeted reads of reminder/SMS/settings/contact/verify code.
+- [x] Fix authoritative weekly template in `src/utils/weeklyReminder.js` and verify threshold + amount conversion with a Babel-hook probe.
+- [x] Add per-customer weekly latch fields + settings toggle + Settings UI.
+- [x] Add JS sync component and native alarm/boot/send runtime.
+- [x] Add verify assertions and run `npm run verify`.
+- [x] Update local records and hand off for Expo Go test only.
+
+NOW (2026-11-23): weekly card now honours `silentSmsAvailable` (disabled switch + honest Expo Go text); `npm run verify` = 57/57 ALL CHECKS PASSED; local records updated. Release gate CLOSED — no version bump / push / tag / CI / APK; Expo Go test handoff only (native SMS needs an APK).
+
 ### Historical phased diagnostics goal (2026-11-19, COMPLETE)
 GOAL: finish a local, sanitized CCTV/DVR diagnostics log + Persian RTL screen named
 «گزارش و عیب‌یابی دوربین» in 8 independently verifiable phases. Work ONE phase at a

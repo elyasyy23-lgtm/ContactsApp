@@ -5,6 +5,7 @@ import {
   Share,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -35,6 +36,7 @@ import {
   TRANSACTION,
   useContact,
   useContacts,
+  updateContact,
 } from '../store/ContactsContext';
 import { useSettings } from '../store/SettingsContext';
 import { useProfiles } from '../store/ProfilesContext';
@@ -532,6 +534,49 @@ export default function CustomerDetailScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* Weekly reminder per-customer opt-out */}
+        <View style={styles.weeklyCard}>
+          <View style={styles.weeklyHead}>
+            <View
+              style={[
+                styles.weeklyIcon,
+                {
+                  backgroundColor: contact.weeklyReminderEnabled !== false
+                    ? colors.greenSoft
+                    : colors.amberSoft,
+                },
+              ]}
+            >
+              <Ionicons
+                name={contact.weeklyReminderEnabled !== false ? 'calendar-outline' : 'calendar-clear-outline'}
+                size={17}
+                color={contact.weeklyReminderEnabled !== false ? colors.green : colors.amber}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.weeklyTitle}>{t('یادآوری هفتگی بدهی')}</Text>
+              <Text style={styles.weeklyState}>
+                {contact.weeklyReminderEnabled !== false
+                  ? t('فعال — ارسال هفته‌ای بر اساس تنظیمات جهانی')
+                  : t('غیرفعال — این مشتری از پیامک هفتگی معاف است')}
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel={t('یادآوری هفتگی بدهی')}
+              value={contact.weeklyReminderEnabled !== false}
+              onValueChange={(value) => {
+                updateContact(contact.id, { weeklyReminderEnabled: value });
+              }}
+              trackColor={{ false: colors.border, true: colors.greenSoft }}
+              thumbColor={contact.weeklyReminderEnabled !== false ? colors.green : colors.white}
+              ios_backgroundColor={colors.border}
+            />
+          </View>
+          <Text style={styles.weeklyHint}>
+            {t('یادآوری هفتگی خودکار برای این مشتری فعال باشد. غیرفعال کردن تنها پیامک هفتگی را متوقف می‌کند، نه پیامک تسویه بدهی.')}
+          </Text>
+        </View>
+
         {contact.phone ? (
           <View style={styles.quickRow}>
             <TouchableOpacity
@@ -699,6 +744,27 @@ const styles = StyleSheet.create({
     padding: 16,
     ...shadows.card,
   },
+
+  weeklyCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginTop: 12,
+    ...shadows.card,
+  },
+  weeklyHead: { flexDirection: 'row-reverse', alignItems: 'center' },
+  weeklyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
+  weeklyTitle: { fontSize: 13.5, fontWeight: '800', color: colors.text, ...rtl },
+  weeklyState: { fontSize: 11, color: colors.textSoft, marginTop: 3, ...rtl },
+  weeklyHint: { fontSize: 11.5, color: colors.muted, lineHeight: 19, marginTop: 10, ...rtl },
+
   balanceTop: { flexDirection: 'row', alignItems: 'center' },
   balanceInfo: { flex: 1, marginLeft: 10 },
   balanceLabel: { fontSize: 12, color: colors.textSoft, fontWeight: '700', ...rtl },

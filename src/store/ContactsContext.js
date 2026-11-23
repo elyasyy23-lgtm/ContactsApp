@@ -19,6 +19,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initialOf, faLetterIndex } from '../utils/format';
 import { REMINDER_THRESHOLD } from '../utils/reminderGate';
 import { autoSendReminder } from '../utils/reminderAuto';
+import {
+  WEEKLY_REMINDER_THRESHOLD,
+  weeklySlotFor,
+  weeklySlotForCrossingSentAt,
+} from '../utils/weeklyReminder';
 import { useSettings } from './SettingsContext';
 
 const STORAGE_KEY = '@contacts_data';
@@ -66,9 +71,16 @@ function normalizeContact(c, index) {
     // debt (balance above REMINDER_THRESHOLD) was already sent.
     // Reset to false as soon as the balance comes back under the threshold.
     smsSentForCurrentDebt: Boolean(c.smsSentForCurrentDebt),
+    // Per-customer weekly Friday 10:00 SMS latch. `''` = this week's weekly
+    // reminder has not been sent yet; a YYYY-MM-DD Friday slot key = sent.
+    weeklySmsSentWeek: String(c.weeklySmsSentWeek || ''),
     // Per-customer reminder switch (Customer Form «ارسال پیامک یادآوری»).
     // Missing on old records → defaults to enabled.
     reminderEnabled: c.reminderEnabled === undefined ? true : Boolean(c.reminderEnabled),
+    // Per-customer weekly scheduled reminder opt-out. Default ON.
+    // When OFF, the customer is excluded from the weekly scheduled reminder only.
+    // Does NOT affect the existing threshold-crossing debt reminder.
+    weeklyReminderEnabled: c.weeklyReminderEnabled === undefined ? true : Boolean(c.weeklyReminderEnabled),
     transactions: Array.isArray(c.transactions)
       ? c.transactions.map(normalizeTransaction)
       : [],
@@ -156,6 +168,35 @@ export function ContactsProvider({ children }) {
     [commit],
   );
 
+  // Mirrors the weekly latch back from the native scheduler. One slot per
+  // customer; loading an older value from a different week is harmless because
+  // weeklyReminderDecision() compares it with the current Friday slot.
+  const setWeeklySmsSentWeek = useCallback(
+    (contactId, week) => {
+      const slot = String(week || '');
+      if (!slot) return;
+      const prev = contactsRef.current;
+      const target = prev.find((c) => c.id === contactId);
+      if (!target || String(target.weeklySmsSentWeek || '') === slot) return;
+      commit(
+        prev.map((c) =>
+          c.id === contactId ? { ...c, weeklySmsSentWeek: slot } : c,
+        ),
+      );
+    },
+    [commit],
+  );
+
+  // A crossing SMS sent during the Friday 10:00 catch-up window already told the
+  // customer about their debt, so do not follow it with the weekly message.
+  const markWeeklySentIfCrossingWasDue = useCallback(
+    (contactId) => {
+      const week = weeklySlotForCrossingSentAt();
+      if (week) setWeeklySmsSentWeek(contactId, week);
+    },
+    [setWeeklySmsSentWeek],
+  );
+
   /**
    * The automatic reminder trigger. Called by every transaction mutation with
    * the contact AFTER the change; `raised` = the mutation increased the debt.
@@ -172,9 +213,13 @@ export function ContactsProvider({ children }) {
         balance: balanceOf(contact),
         settings: settingsRef.current,
         setSmsSentForCurrentDebt,
-      }).catch((error) => console.warn('Automatic reminder failed', error));
+      })
+        .then((result) => {
+          if (result && result.ok) markWeeklySentIfCrossingWasDue(contact.id);
+        })
+        .catch((error) => console.warn('Automatic reminder failed', error));
     },
-    [setSmsSentForCurrentDebt],
+    [markWeeklySentIfCrossingWasDue, setSmsSentForCurrentDebt],
   );
 
   /**
@@ -193,9 +238,13 @@ export function ContactsProvider({ children }) {
         balance: balanceOf(contact),
         settings: settingsRef.current,
         setSmsSentForCurrentDebt,
-      }).catch((error) => console.warn('Automatic reminder failed', error));
+      })
+        .then((result) => {
+          if (result && result.ok) markWeeklySentIfCrossingWasDue(contact.id);
+        })
+        .catch((error) => console.warn('Automatic reminder failed', error));
     },
-    [setSmsSentForCurrentDebt],
+    [markWeeklySentIfCrossingWasDue, setSmsSentForCurrentDebt],
   );
 
   const addContact = useCallback(
@@ -343,6 +392,7 @@ export function ContactsProvider({ children }) {
       deleteTransaction,
       attemptAutoReminder,
       setSmsSentForCurrentDebt,
+      setWeeklySmsSentWeek,
       clearProfileFromContacts,
     }),
     [
@@ -357,6 +407,7 @@ export function ContactsProvider({ children }) {
       deleteTransaction,
       attemptAutoReminder,
       setSmsSentForCurrentDebt,
+      setWeeklySmsSentWeek,
       clearProfileFromContacts,
     ],
   );

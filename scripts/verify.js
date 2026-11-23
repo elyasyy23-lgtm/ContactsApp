@@ -118,6 +118,7 @@ const buildInfo = require(path.join(srcDir, 'buildInfo.js'));
 const updateCheck = require(path.join(srcDir, 'utils/updateCheck.js'));
 const rtsp = require(path.join(srcDir, 'utils/rtsp.js'));
 const tvPlayback = require(path.join(srcDir, 'utils/tvPlayback.js'));
+const weeklyReminder = require(path.join(srcDir, 'utils/weeklyReminder.js'));
 
 try {
   assert.strictEqual(fmt.group(1234567), '1,234,567', 'group() stays Latin');
@@ -1148,6 +1149,124 @@ try {
   const aliRow = csv.split('\n').find((l) => l.includes('علی'));
   assert.ok(aliRow.endsWith(',100,40,60'), 'credited − paid = net per row');
   assert.ok(backup.backupFileName('eKhata-backup', 'json').startsWith('eKhata-backup-'));
+
+
+  // ── weekly configurable weekday/time reminder (separate from crossing reminder) ───────
+  assert.strictEqual(weeklyReminder.WEEKLY_REMINDER_THRESHOLD, 1000, 'weekly threshold is 1,000 ledger units');
+  assert.strictEqual(weeklyReminder.DEFAULT_WEEKLY_WEEKDAY, 5, 'default Friday weekday');
+  assert.strictEqual(weeklyReminder.DEFAULT_WEEKLY_HOUR, 10, 'default 10:00 local hour');
+  assert.strictEqual(weeklyReminder.DEFAULT_WEEKLY_MINUTE, 0, 'default 0 minutes');
+
+  // Default Friday 10:00 slot tests
+  const wkFri = new Date(2026, 10, 20, 10, 0, 0, 0); // local Friday
+  const wkSat = new Date(2026, 10, 21, 9, 59, 0, 0);
+  const wkNext = new Date(2026, 10, 27, 10, 0, 0, 0);
+  const wkSlot = weeklyReminder.weeklySlotFor(wkFri);
+  assert.strictEqual(wkSlot, '2026-11-20', 'Friday slot key');
+  assert.strictEqual(weeklyReminder.weeklySlotFor(wkSat), '2026-11-20', 'Sat 09:59 belongs to Friday slot');
+  assert.strictEqual(weeklyReminder.weeklySlotFor(wkNext), '2026-11-27', 'next Friday gets new slot');
+  assert.strictEqual(weeklyReminder.inWeeklyDueWindow(wkFri, wkSlot), true, 'Friday 10:00 is due');
+  assert.strictEqual(weeklyReminder.inWeeklyDueWindow(new Date(2026, 10, 20, 9, 59, 0, 0), wkSlot), false, 'before 10:00 not due');
+  assert.strictEqual(weeklyReminder.inWeeklyDueWindow(new Date(2026, 10, 21, 10, 0, 0, 0), wkSlot), false, 'after catch-up window not due');
+
+  // Configurable weekday/time tests - Saturday 14:30
+  const satWeekday = 6;
+  const satHour = 14;
+  const satMinute = 30;
+  const wkSat14 = new Date(2026, 10, 21, 14, 30, 0, 0); // local Saturday
+  const wkSatNext = new Date(2026, 10, 28, 14, 30, 0, 0);
+  const wkSatSlot = weeklyReminder.weeklySlotFor(wkSat14, satWeekday, satHour, satMinute);
+  assert.strictEqual(wkSatSlot, '2026-11-21', 'Saturday slot key');
+  assert.strictEqual(weeklyReminder.weeklySlotFor(wkSatNext, satWeekday, satHour, satMinute), '2026-11-28', 'next Saturday gets new slot');
+  assert.strictEqual(weeklyReminder.inWeeklyDueWindow(wkSat14, wkSatSlot, satHour, satMinute), true, 'Saturday 14:30 is due');
+  assert.strictEqual(weeklyReminder.inWeeklyDueWindow(new Date(2026, 10, 21, 14, 29, 0, 0), wkSatSlot, satHour, satMinute), false, 'before 14:30 not due');
+  assert.strictEqual(weeklyReminder.inWeeklyDueWindow(new Date(2026, 10, 22, 14, 30, 0, 0), wkSatSlot, satHour, satMinute), false, 'after catch-up window not due');
+
+  // Configurable Sunday 09:00 test
+  const sunWeekday = 0;
+  const sunHour = 9;
+  const sunMinute = 0;
+  const wkSun09 = new Date(2026, 10, 15, 9, 0, 0, 0); // local Sunday
+  const wkSunSlot = weeklyReminder.weeklySlotFor(wkSun09, sunWeekday, sunHour, sunMinute);
+  assert.strictEqual(wkSunSlot, '2026-11-15', 'Sunday slot key');
+
+  const wkReady = { settingsReady: true, hasPhone: true };
+  const wkSend = weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
+  });
+  assert.strictEqual(wkSend.action, 'send', 'eligible debt should send');
+  assert.strictEqual(wkSend.week, wkSlot);
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: wkSlot, balance: 5000, ...wkReady,
+  }).action, 'none', 'same slot must not resend');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1000, ...wkReady,
+  }).action, 'none', '1000 ledger units is not over threshold');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, settingsReady: false, hasPhone: true,
+  }).action, 'none', 'settings not ready blocks send');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, settingsReady: true, hasPhone: false,
+  }).action, 'none', 'missing phone blocks send');
+
+  // Configurable decision tests
+  const wkSatReady = { settingsReady: true, hasPhone: true };
+  const satSend = weeklyReminder.weeklyReminderDecision({
+    now: wkSat14, sentWeek: '', balance: 1001, ...wkSatReady,
+    weekday: satWeekday, hour: satHour, minute: satMinute,
+  });
+  assert.strictEqual(satSend.action, 'send', 'Saturday 14:30 eligible debt should send');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkSat14, sentWeek: wkSatSlot, balance: 5000, ...wkSatReady,
+    weekday: satWeekday, hour: satHour, minute: satMinute,
+  }).action, 'none', 'same Saturday slot must not resend');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkSat14, sentWeek: '', balance: 1000, ...wkSatReady,
+    weekday: satWeekday, hour: satHour, minute: satMinute,
+  }).action, 'none', '1000 ledger units is not over threshold on Saturday');
+
+  // Per-customer weekly reminder opt-out tests
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
+    weeklyReminderEnabled: true,
+  }).action, 'send', 'weeklyReminderEnabled=true allows send');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
+    weeklyReminderEnabled: false,
+  }).action, 'none', 'weeklyReminderEnabled=false blocks weekly send');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
+    // missing field defaults to true
+  }).action, 'send', 'missing weeklyReminderEnabled defaults to true (backward compat)');
+
+  // Ensure opt-out does NOT affect crossing reminder
+  assert.strictEqual(gate.reminderAction({ 
+    balance: 1001, sentForCurrentDebt: false, ...wkReady, 
+    reminderEnabled: true, // this is the crossing reminder switch
+  }), 'send', 'crossing reminder still sends when weekly opt-out is off');
+  // Note: weeklyReminderEnabled is NOT passed to reminderGate, so it doesn't affect crossing reminder
+
+  // crossing reminder remains independent
+  assert.strictEqual(gate.reminderAction({ balance: 1001, sentForCurrentDebt: false, ...wkReady }), 'send', 'crossing reminder still sends');
+  assert.strictEqual(gate.reminderAction({ balance: 1001, sentForCurrentDebt: true, ...wkReady }), 'none', 'crossing latch still blocks');
+
+  const wkTemplate = weeklyReminder.buildWeeklyReminder({
+    customerName: 'علی', amount: 2500, cardNumber: '6037997412345678',
+  });
+  const wkExpected = [
+    'علی عزیز، صبح جمعه\u200Cتان بخیر.',
+    'امیدواریم آخر هفته خوبی داشته باشید.',
+    'یادآوری می\u200Cشود بدهی شما ۲٬۵۰۰٬۰۰۰ تومان می\u200Cباشد.',
+    'جهت تسویه، لطفاً مبلغ را به شماره کارت زیر واریز نمایید:',
+    '6037 9974 1234 5678',
+    'به نام: بهرام یعقوبی',
+    'لطفاً پس از واریز، متن رسید تراکنش را برای این شماره ارسال نمایید.',
+    'با تشکر از همکاری شما',
+  ].join('\n').replace(/\\u200C/g, '\u200C');
+  assert.strictEqual(wkTemplate, wkExpected, 'weekly template must match authoritative Persian template');
+  assert.strictEqual((wkTemplate.match(/\u200C/g) || []).length, 3, 'template has 3 ZWNJ');
+  assert.strictEqual((wkTemplate.match(/\u060C/g) || []).length, 3, 'template has 3 Persian commas');
+  assert.ok(wkTemplate.includes('برای این شماره'), 'template includes correct phrase');
 
   console.log('unit checks: ok');
 } catch (error) {

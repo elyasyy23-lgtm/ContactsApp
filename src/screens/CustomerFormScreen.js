@@ -60,6 +60,10 @@ export default function CustomerFormScreen({ navigation, route }) {
   const [reminderEnabled, setReminderEnabled] = useState(
     existing ? existing.reminderEnabled !== false : true,
   );
+  // Per-customer weekly scheduled reminder opt-out — default ON.
+  const [weeklyReminderEnabled, setWeeklyReminderEnabled] = useState(
+    existing ? existing.weeklyReminderEnabled !== false : true,
+  );
 
   const save = () => {
     if (!name.trim()) {
@@ -74,6 +78,7 @@ export default function CustomerFormScreen({ navigation, route }) {
       cardNumber: cardNumber.replace(/\D/g, ''),
       profileId: profiles.some((p) => p.id === profileId) ? profileId : '',
       reminderEnabled,
+      weeklyReminderEnabled,
     };
 
     if (existing) {
@@ -196,7 +201,7 @@ export default function CustomerFormScreen({ navigation, route }) {
                 ))}
               </ScrollView>
             </View>
-            <View style={styles.switchCard}>
+<View style={styles.switchCard}>
               <View style={styles.switchIcon}>
                 <Ionicons
                   name="paper-plane-outline"
@@ -217,9 +222,30 @@ export default function CustomerFormScreen({ navigation, route }) {
                 thumbColor={reminderEnabled ? colors.primary : colors.white}
               />
             </View>
-          </View>
-
-          <TouchableOpacity activeOpacity={0.88} style={styles.saveBtn} onPress={save}>
+            <View style={styles.switchCard}>
+              <View style={styles.switchIcon}>
+                <Ionicons
+                  name="calendar-outline"
+                  size={17}
+                  color={weeklyReminderEnabled ? colors.primary : colors.muted}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.switchTitle}>{t('ارسال یادآوری هفتگی بدهی')}</Text>
+                <Text style={styles.switchSub}>
+                  {t('یادآوری هفتگی خودکار برای این مشتری فعال باشد. غیرفعال کردن تنها پیامک هفتگی را متوقف می‌کند، نه پیامک تسویه بدهی.')}
+                </Text>
+              </View>
+              <Switch
+                value={weeklyReminderEnabled}
+                onValueChange={setWeeklyReminderEnabled}
+                trackColor={{ false: colors.border, true: colors.primaryLight }}
+                thumbColor={weeklyReminderEnabled ? colors.primary : colors.white}
+              />
+            </View>
+            </View>
+          
+            <TouchableOpacity activeOpacity={0.88} style={styles.saveBtn} onPress={save}>
             <Ionicons name="checkmark-circle-outline" size={19} color={colors.white} />
             <Text style={styles.saveText}>
               {existing ? t('ذخیره تغییرات') : t('افزودن مشتری')}

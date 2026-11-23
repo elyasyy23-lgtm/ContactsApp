@@ -45,6 +45,70 @@ export function addSmsListener(handler) {
   return { remove: () => subscription.remove() };
 }
 
+function normalizeNativeResult(result, fallbackReason) {
+  return result && typeof result === 'object' ? result : { ok: false, reason: fallbackReason };
+}
+
+/**
+ * Configure the native Friday 10:00 scheduler. Expo Go has no native module,
+ * so this is an explicit no-op there; the UI keeps the weekly switch disabled
+ * in that fallback.
+ */
+export async function setWeeklyReminderConfig(config) {
+  if (!nativeModule) return { ok: false, reason: 'unavailable' };
+  try {
+    return normalizeNativeResult(
+      await nativeModule.setWeeklyReminderConfig(config || {}),
+      'error',
+    );
+  } catch (error) {
+    return { ok: false, reason: 'error', message: String(error?.message || error) };
+  }
+}
+
+/** Hand the native scheduler a fresh per-customer snapshot. */
+export async function syncWeeklyReminder(snapshot) {
+  if (!nativeModule) return { ok: false, reason: 'unavailable' };
+  try {
+    return normalizeNativeResult(await nativeModule.syncWeeklyReminder(snapshot || {}), 'error');
+  } catch (error) {
+    return { ok: false, reason: 'error', message: String(error?.message || error) };
+  }
+}
+
+/**
+ * Drain weekly-send events that happened while JS was not listening (e.g. a
+ * cold start after the native alarm fired). Native clears its queue here.
+ */
+export async function drainWeeklySmsEvents() {
+  if (!nativeModule || typeof nativeModule.drainWeeklySmsEvents !== 'function') return [];
+  try {
+    const events = await nativeModule.drainWeeklySmsEvents();
+    if (!Array.isArray(events)) return [];
+    return events
+      .map((event) => ({
+        contactId: String(event?.contactId ?? event?.contact_id ?? ''),
+        week: String(event?.week ?? event?.slot ?? ''),
+        timestamp: Number(event?.timestamp ?? 0),
+      }))
+      .filter((event) => event.contactId && event.week);
+  } catch (error) {
+    return [];
+  }
+}
+
+/** Native emits { contactId, week } after a successful silent weekly send. */
+export function addWeeklySmsSentListener(handler) {
+  if (!emitter || typeof handler !== 'function') return { remove() {} };
+  const subscription = emitter.addListener('onWeeklySmsSent', (event) => {
+    if (!event || typeof event !== 'object') return;
+    const contactId = String(event.contactId || event.contact_id || '');
+    const week = String(event.week || event.slot || '');
+    if (contactId && week) handler({ contactId, week });
+  });
+  return { remove: () => subscription.remove() };
+}
+
 export async function hasSendSmsPermission() {
   if (!nativeModule) return false;
   try {

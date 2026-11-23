@@ -265,6 +265,26 @@ export const en = {
   'تکراری': 'Already added',
   'این شماره قبلاً در فهرست نادیده‌گرفته‌شده‌ها هست.': 'This number is already in the ignored list.',
 
+  // ── Weekly configurable reminder ────────────────────────────────────────────
+  'یادآوری هفتگی بدهی': 'Weekly debt reminder',
+  'فعال — هر {day} ساعت {time} ارسال میشود': 'On — sent every {day} at {time}',
+  'غیرفعال — در صورت تمایل روشن کنید': 'Off — turn on if you want it',
+  'روز هفته': 'Weekday',
+  'زمان ارسال': 'Send time',
+  'بامداد': 'Morning',
+  'عصر': 'Afternoon',
+  'یکشنبه': 'Sunday',
+  'دوشنبه': 'Monday',
+  'سه‌شنبه': 'Tuesday',
+  'چهارشنبه': 'Wednesday',
+  'پنج‌شنبه': 'Thursday',
+  'جمعه': 'Friday',
+  'شنبه': 'Saturday',
+  'برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، هر {day} ساعت {time} یک پیامک خودکار ارسال میشود. این قابلیت فقط در نسخه APK موجود است و هر مشتری در هفته یک بار پیامک میگیرد.': 'For debts above 1,000,000 Toman, one automatic SMS is sent every {day} at {time}. This feature works only in the APK build, and each customer receives one SMS per week.',
+  // Per-customer weekly reminder opt-out (Customer Form)
+  'ارسال یادآوری هفتگی بدهی': 'Send weekly debt reminder',
+  'یادآوری هفتگی خودکار برای این مشتری فعال باشد. غیرفعال کردن تنها پیامک هفتگی را متوقف می‌کند، نه پیامک تسویه بدهی.': 'Enable automatic weekly reminder for this customer. Disabling stops only the weekly SMS, not the debt settlement reminder.',
+
   // ── Premium ───────────────────────────────────────────────────────────────
   'مشتری نامحدود': 'Unlimited customers',
   'بدون سقف مشتری؛ در دوره آزمایشی و بعد از خرید.': 'No customer cap — during the trial and after purchase.',
