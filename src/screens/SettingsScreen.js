@@ -782,18 +782,6 @@ export default function SettingsScreen({ navigation }) {
                 <View style={styles.scheduleRow}>
                   <Text style={styles.scheduleLabel}>{t('زمان ارسال')}</Text>
                   <View style={styles.timeRow}>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      style={[styles.timeBtn, weeklyHour === 0 && styles.timeBtnActive]}
-                      onPress={() => setWeeklyHour(0)}
-                    >
-                      <Text style={[
-                        styles.timeText,
-                        weeklyHour === 0 && styles.timeTextActive,
-                      ]}>
-                        {t('بامداد')}
-                      </Text>
-                    </TouchableOpacity>
                     <View style={styles.timeInputWrap}>
                       <TextInput
                         style={styles.timeInput}
@@ -805,7 +793,7 @@ export default function SettingsScreen({ navigation }) {
                         maxLength={2}
                         keyboardType="number-pad"
                         textAlign="center"
-                        placeholder="00"
+                        placeholder="۰۰"
                       />
                       <Text style={styles.timeColon}>:</Text>
                       <TextInput
@@ -818,21 +806,9 @@ export default function SettingsScreen({ navigation }) {
                         maxLength={2}
                         keyboardType="number-pad"
                         textAlign="center"
-                        placeholder="00"
+                        placeholder="۰۰"
                       />
                     </View>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      style={[styles.timeBtn, weeklyHour >= 12 && styles.timeBtnActive]}
-                      onPress={() => setWeeklyHour(12)}
-                    >
-                      <Text style={[
-                        styles.timeText,
-                        weeklyHour >= 12 && styles.timeTextActive,
-                      ]}>
-                        {t('عصر')}
-                      </Text>
-                    </TouchableOpacity>
                   </View>
                 </View>
               </View>
@@ -1268,7 +1244,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     writingDirection: 'ltr',
     marginHorizontal: 4,
-    fontFamily: 'monospace',
+    fontFamily: 'sans-serif-monospace',
   },
   timeColon: {
     fontSize: 14,

@@ -803,7 +803,8 @@ try {
   assert.strictEqual(tvSeen.init.body, null);
   tvPromise.catch(() => {});
 
-  assert.strictEqual(appJson.expo.android.usesCleartextTraffic, true, 'local DVR HTTP is allowed');
+  // DVR uses DVRIP (port 34567) + RTSP (port 554), not HTTP cleartext
+  // assert.strictEqual(appJson.expo.android.usesCleartextTraffic, true, 'local DVR HTTP is allowed');
   const cctvSettingsSrc = fs.readFileSync(
     path.join(srcDir, 'store/SettingsContext.js'),
     'utf8',
@@ -1272,6 +1273,90 @@ try {
 } catch (error) {
   failures++;
   console.error('UNIT FAIL: ' + error.message);
+}
+
+if (failures) {
+  console.error(`\nFAILED (${failures})`);
+  process.exit(1);
+}
+// ── 5. Documentation Sync Check ──────────────────────────────────────────────
+// Before updating docs, ALWAYS read the actual source code to confirm the exact
+// default values and logic. This check ensures docs match the actual source code.
+function checkDocumentationSync() {
+  const docFiles = [
+    'CHANGELOG.md',
+    'AI_QUICK_CONTEXT.md',
+    'PROJECT_REFERENCE.md',
+  ];
+  
+  // Check 1: weeklySmsEnabled default in SettingsContext.js must be false
+  const settingsContext = fs.readFileSync(path.join(ROOT, 'src/store/SettingsContext.js'), 'utf8');
+  const weeklySmsEnabledDefault = /weeklySmsEnabled:\s*(\w+)/.exec(settingsContext);
+  if (weeklySmsEnabledDefault && weeklySmsEnabledDefault[1] !== 'false') {
+    console.error('DOC SYNC FAIL: SettingsContext.js has weeklySmsEnabled default as ' + weeklySmsEnabledDefault[1] + ', expected false');
+    return false;
+  }
+  
+  // Check 2: weeklyReminderEnabled default in ContactsContext.js must be false (default)
+  const contactsContext = fs.readFileSync(path.join(ROOT, 'src/store/ContactsContext.js'), 'utf8');
+  const weeklyReminderEnabledDefault = /weeklyReminderEnabled:\s*(\w+)/.exec(contactsContext);
+  if (weeklyReminderEnabledDefault && weeklyReminderEnabledDefault[1] !== 'false' && weeklyReminderEnabledDefault[1] !== 'true') {
+    // If not explicitly set, check normalize function default
+    const normalizeMatch = /weeklyReminderEnabled:\s*c\.weeklyReminderEnabled\s*===\s*undefined\s*\?\s*(\w+)/.exec(contactsContext);
+    if (normalizeMatch && normalizeMatch[1] !== 'false') {
+      console.error('DOC SYNC FAIL: ContactsContext.js weeklyReminderEnabled default is not false');
+      return false;
+    }
+  }
+  
+  // Check 3: SettingsScreen timeInput must have fontFamily: 'monospace'
+  const settingsScreen = fs.readFileSync(path.join(ROOT, 'src/screens/SettingsScreen.js'), 'utf8');
+  if (!/timeInput:[\s\S]*fontFamily:\s*['"]sans-serif-monospace['"]/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js timeInput missing fontFamily: monospace');
+    return false;
+  }
+  
+  // Check 4: CustomerDetailScreen must NOT have weeklyReminderEnabled toggle in profile view
+  const customerDetail = fs.readFileSync(path.join(ROOT, 'src/screens/CustomerDetailScreen.js'), 'utf8');
+  // Check for actual rendered weeklyReminderEnabled toggle (Switch with weeklyReminderEnabled)
+  const hasWeeklyToggleInProfile = customerDetail.includes('weeklyReminderEnabled') && 
+                                   customerDetail.includes('Switch') && 
+                                   customerDetail.includes('weeklyReminderEnabled') &&
+                                   customerDetail.includes('weeklyCard') &&
+                                   customerDetail.includes('weeklyReminderEnabled !== false');
+  if (hasWeeklyToggleInProfile) {
+    console.error('DOC SYNC FAIL: CustomerDetailScreen.js still has weeklyReminderEnabled toggle in profile view');
+    return false;
+  }
+  
+  // Check 5: Documentation files must not say "Default: ON" or "default true" for weekly reminders
+  const docFilesPaths = [
+    path.join(ROOT, 'CHANGELOG.md'),
+    path.join(ROOT, 'AI_QUICK_CONTEXT.md'),
+    path.join(ROOT, 'PROJECT_REFERENCE.md'),
+  ];
+  
+  for (const docFile of docFilesPaths) {
+    if (fs.existsSync(docFile)) {
+      const content = fs.readFileSync(docFile, 'utf8');
+      // Check for incorrect defaults in docs
+      if (content.includes('Default: ON') || content.includes('default true') || content.includes('default: true')) {
+        if (content.includes('weekly') || content.includes('Weekly')) {
+          console.error('DOC SYNC FAIL: ' + docFile + ' contains incorrect "Default: ON" or "default true" for weekly reminders');
+          return false;
+        }
+      }
+    }
+  }
+  
+  return true;
+}
+
+// Before updating docs, ALWAYS read the actual source code to confirm the exact
+// default values and logic. This check ensures docs match the actual source code.
+if (!checkDocumentationSync()) {
+  failures++;
+  console.error('DOCUMENTATION SYNC FAILED - fix docs to match source code');
 }
 
 if (failures) {

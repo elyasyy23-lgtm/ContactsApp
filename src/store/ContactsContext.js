@@ -77,10 +77,10 @@ function normalizeContact(c, index) {
     // Per-customer reminder switch (Customer Form «ارسال پیامک یادآوری»).
     // Missing on old records → defaults to enabled.
     reminderEnabled: c.reminderEnabled === undefined ? true : Boolean(c.reminderEnabled),
-    // Per-customer weekly scheduled reminder opt-out. Default ON.
+    // Per-customer weekly scheduled reminder opt-out. Default OFF.
     // When OFF, the customer is excluded from the weekly scheduled reminder only.
     // Does NOT affect the existing threshold-crossing debt reminder.
-    weeklyReminderEnabled: c.weeklyReminderEnabled === undefined ? true : Boolean(c.weeklyReminderEnabled),
+    weeklyReminderEnabled: c.weeklyReminderEnabled === undefined ? false : Boolean(c.weeklyReminderEnabled),
     transactions: Array.isArray(c.transactions)
       ? c.transactions.map(normalizeTransaction)
       : [],
