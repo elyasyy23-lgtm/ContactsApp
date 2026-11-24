@@ -11,7 +11,6 @@
     },
     "android": {
       "allowBackup": true,
-      "usesCleartextTraffic": true,
       "permissions": [
         "RECEIVE_SMS",
         "READ_SMS",
@@ -35,7 +34,9 @@
       }
     },
     "plugins": [
-      "expo-sharing"
+      "expo-sharing",
+      "expo-font",
+      "expo-status-bar"
     ]
   }
 }

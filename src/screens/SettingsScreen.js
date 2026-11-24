@@ -321,14 +321,12 @@ export default function SettingsScreen({ navigation }) {
 
   const WEEKDAY_LABELS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
 
-  const weeklySmsState = !silentSmsAvailable
-    ? t('در Expo Go فعال نیست — نیازمند نسخه APK')
-    : settings.weeklySmsEnabled
-      ? t('فعال — هر {day} ساعت {time} ارسال میشود', {
-          day: WEEKDAY_LABELS[settings.weeklyWeekday] || WEEKDAY_LABELS[5],
-          time: `${String(settings.weeklyHour).padStart(2, '0')}:${String(settings.weeklyMinute).padStart(2, '0')}`,
-        })
-      : t('غیرفعال — در صورت تمایل روشن کنید');
+  const weeklySmsState = settings.weeklySmsEnabled
+    ? t('فعال — هر {day} ساعت {time} ارسال میشود', {
+        day: WEEKDAY_LABELS[settings.weeklyWeekday] || WEEKDAY_LABELS[5],
+        time: `${String(settings.weeklyHour).padStart(2, '0')}:${String(settings.weeklyMinute).padStart(2, '0')}`,
+      }) + (silentSmsAvailable ? '' : ' ' + t('(نیاز به APK برای ارسال)'))
+    : t('غیرفعال — در صورت تمایل روشن کنید');
 
   // ── Backup & Data ────────────────────────────────────────────────────────
   // The file is handed to the Android share sheet; from there the user saves
@@ -727,16 +725,16 @@ export default function SettingsScreen({ navigation }) {
                 style={[
                   styles.weeklyIcon,
                   {
-                    backgroundColor: silentSmsAvailable && settings.weeklySmsEnabled
+                    backgroundColor: settings.weeklySmsEnabled
                       ? colors.greenSoft
                       : colors.amberSoft,
                   },
                 ]}
               >
                 <Ionicons
-                  name={silentSmsAvailable && settings.weeklySmsEnabled ? 'calendar-outline' : 'calendar-clear-outline'}
+                  name={settings.weeklySmsEnabled ? 'calendar-outline' : 'calendar-clear-outline'}
                   size={17}
-                  color={silentSmsAvailable && settings.weeklySmsEnabled ? colors.green : colors.amber}
+                  color={settings.weeklySmsEnabled ? colors.green : colors.amber}
                 />
               </View>
               <View style={{ flex: 1 }}>
@@ -745,17 +743,16 @@ export default function SettingsScreen({ navigation }) {
               </View>
               <Switch
                 accessibilityLabel={t('یادآوری هفتگی بدهی')}
-                value={Boolean(silentSmsAvailable && settings.weeklySmsEnabled)}
+                value={settings.weeklySmsEnabled}
                 onValueChange={(value) => {
-                  if (silentSmsAvailable) saveSettings({ weeklySmsEnabled: value });
+                  saveSettings({ weeklySmsEnabled: value });
                 }}
                 trackColor={{ false: colors.border, true: colors.greenSoft }}
-                thumbColor={silentSmsAvailable && settings.weeklySmsEnabled ? colors.green : colors.white}
+                thumbColor={settings.weeklySmsEnabled ? colors.green : colors.white}
                 ios_backgroundColor={colors.border}
-                disabled={!silentSmsAvailable}
               />
             </View>
-            {settings.weeklySmsEnabled && silentSmsAvailable && (
+            {settings.weeklySmsEnabled && (
               <View style={styles.weeklySchedule}>
                 <View style={styles.scheduleRow}>
                   <Text style={styles.scheduleLabel}>{t('روز هفته')}</Text>
@@ -1271,6 +1268,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     writingDirection: 'ltr',
     marginHorizontal: 4,
+    fontFamily: 'monospace',
   },
   timeColon: {
     fontSize: 14,

@@ -36,7 +36,6 @@ import {
   TRANSACTION,
   useContact,
   useContacts,
-  updateContact,
 } from '../store/ContactsContext';
 import { useSettings } from '../store/SettingsContext';
 import { useProfiles } from '../store/ProfilesContext';
@@ -89,6 +88,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
     deleteContact,
     attemptAutoReminder,
     setSmsSentForCurrentDebt,
+    updateContact,
   } = useContacts();
   const { settings } = useSettings();
   const { profileById } = useProfiles();

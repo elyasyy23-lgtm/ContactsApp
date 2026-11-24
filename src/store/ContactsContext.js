@@ -421,7 +421,6 @@ export function useContacts() {
   return ctx;
 }
 
-/** Live contact by id (re-renders when any transaction changes). */
 export function useContact(id) {
   const { contacts } = useContacts();
   return useMemo(() => contacts.find((c) => c.id === id) || null, [contacts, id]);

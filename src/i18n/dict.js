@@ -281,6 +281,7 @@ export const en = {
   'جمعه': 'Friday',
   'شنبه': 'Saturday',
   'برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، هر {day} ساعت {time} یک پیامک خودکار ارسال میشود. این قابلیت فقط در نسخه APK موجود است و هر مشتری در هفته یک بار پیامک میگیرد.': 'For debts above 1,000,000 Toman, one automatic SMS is sent every {day} at {time}. This feature works only in the APK build, and each customer receives one SMS per week.',
+  '(نیاز به APK برای ارسال)': '(APK required for delivery)',
   // Per-customer weekly reminder opt-out (Customer Form)
   'ارسال یادآوری هفتگی بدهی': 'Send weekly debt reminder',
   'یادآوری هفتگی خودکار برای این مشتری فعال باشد. غیرفعال کردن تنها پیامک هفتگی را متوقف می‌کند، نه پیامک تسویه بدهی.': 'Enable automatic weekly reminder for this customer. Disabling stops only the weekly SMS, not the debt settlement reminder.',
