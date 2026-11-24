@@ -1158,6 +1158,21 @@ try {
   assert.strictEqual(weeklyReminder.DEFAULT_WEEKLY_HOUR, 10, 'default 10:00 local hour');
   assert.strictEqual(weeklyReminder.DEFAULT_WEEKLY_MINUTE, 0, 'default 0 minutes');
 
+  // The Android module counts 1=Sun..7=Sat; JS/UI count 0=Sun..6=Sat.
+  // Without this shift a Saturday choice fires on Friday.
+  assert.strictEqual(weeklyReminder.toNativeWeekday(0), 1, 'JS Sunday -> Calendar Sunday');
+  assert.strictEqual(weeklyReminder.toNativeWeekday(5), 6, 'JS Friday -> Calendar Friday');
+  assert.strictEqual(weeklyReminder.toNativeWeekday(6), 7, 'JS Saturday -> Calendar Saturday');
+  assert.strictEqual(weeklyReminder.fromNativeWeekday(7), 6, 'Calendar Saturday -> JS Saturday');
+  assert.strictEqual(weeklyReminder.fromNativeWeekday(1), 0, 'Calendar Sunday -> JS Sunday');
+  for (let js = 0; js < 7; js += 1) {
+    assert.strictEqual(
+      weeklyReminder.fromNativeWeekday(weeklyReminder.toNativeWeekday(js)),
+      js,
+      `weekday round-trip ${js}`,
+    );
+  }
+
   // Default Friday 10:00 slot tests
   const wkFri = new Date(2026, 10, 20, 10, 0, 0, 0); // local Friday
   const wkSat = new Date(2026, 10, 21, 9, 59, 0, 0);
@@ -1309,10 +1324,27 @@ function checkDocumentationSync() {
     }
   }
   
-  // Check 3: SettingsScreen timeInput must have fontFamily: 'monospace'
+  // Check 3: the weekly time is chosen with the native CLOCK picker, not typed
+  // free-text boxes, and weekday labels follow the app language.
   const settingsScreen = fs.readFileSync(path.join(ROOT, 'src/screens/SettingsScreen.js'), 'utf8');
-  if (!/timeInput:[\s\S]*fontFamily:\s*['"]sans-serif-monospace['"]/.test(settingsScreen)) {
-    console.error('DOC SYNC FAIL: SettingsScreen.js timeInput missing fontFamily: monospace');
+  if (!settingsScreen.includes('DateTimePickerAndroid')) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js no longer uses DateTimePickerAndroid');
+    return false;
+  }
+  if (!/mode:\s*'time'[\s\S]*display:\s*'clock'/.test(settingsScreen)) {
+    console.error("DOC SYNC FAIL: SettingsScreen.js time picker must use display: 'clock'");
+    return false;
+  }
+  if (/styles\.timeInput\b/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js still renders a free-text time input');
+    return false;
+  }
+  if (!/\.map\(\s*\(day\)\s*=>\s*t\(day\)/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js weekday labels are not translated');
+    return false;
+  }
+  if (/WEEKDAY_LABELS\[settings\.weeklyWeekday\]/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js weekday summary reads the stale saved value');
     return false;
   }
   

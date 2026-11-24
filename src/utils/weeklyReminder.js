@@ -16,6 +16,24 @@ import { REMINDER_THRESHOLD, TOMAN_PER_UNIT } from './reminderGate';
 export const DEFAULT_WEEKLY_WEEKDAY = 5;
 export const DEFAULT_WEEKLY_HOUR = 10;
 export const DEFAULT_WEEKLY_MINUTE = 0;
+
+/**
+ * The native module (Android `java.util.Calendar`) counts weekdays as
+ * 1=Sunday … 7=Saturday, while the JS side (and the UI chips) use
+ * 0=Sunday … 6=Saturday. Every value crossing the bridge must be shifted by
+ * one, otherwise the alarm fires one day early (Saturday → Friday).
+ */
+export function toNativeWeekday(jsWeekday) {
+  const value = Number(jsWeekday);
+  const safe = Number.isFinite(value) ? Math.trunc(value) : DEFAULT_WEEKLY_WEEKDAY;
+  return (((safe % 7) + 7) % 7) + 1;
+}
+
+export function fromNativeWeekday(nativeWeekday) {
+  const value = Number(nativeWeekday);
+  const safe = Number.isFinite(value) ? Math.trunc(value) : 1;
+  return ((((safe - 1) % 7) + 7) % 7);
+}
 export const WEEKLY_CATCH_UP_MS = 24 * 60 * 60 * 1000;
 export const WEEKLY_REMINDER_THRESHOLD = REMINDER_THRESHOLD;
 

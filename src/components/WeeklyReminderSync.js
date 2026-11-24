@@ -12,6 +12,7 @@ import {
   DEFAULT_WEEKLY_WEEKDAY,
   DEFAULT_WEEKLY_HOUR,
   DEFAULT_WEEKLY_MINUTE,
+  toNativeWeekday,
 } from '../utils/weeklyReminder';
 
 function contactId(contact) {
@@ -115,7 +116,7 @@ export default function WeeklyReminderSync() {
       slot: currentSlot,
       settingsReady,
       cardNumber,
-      weekday,
+      weekday: toNativeWeekday(weekday),
       hour,
       minute,
       contacts: list
@@ -143,7 +144,13 @@ export default function WeeklyReminderSync() {
     };
 
     try {
-      const configResult = SmsReader.setWeeklyReminderConfig?.({ enabled, weekday, hour, minute });
+      const nativeWeekday = toNativeWeekday(weekday);
+      const configResult = SmsReader.setWeeklyReminderConfig?.({
+        enabled,
+        weekday: nativeWeekday,
+        hour,
+        minute,
+      });
       if (configResult && typeof configResult.catch === 'function') {
         configResult.catch(() => {});
       }

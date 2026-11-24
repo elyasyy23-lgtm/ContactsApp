@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, rtl, rtlCenter, shadows } from '../theme';
@@ -319,14 +320,36 @@ export default function SettingsScreen({ navigation }) {
         ? t('اجازه دسترسی به پیامک داده نشده')
         : t('غیرفعال');
 
-  const WEEKDAY_LABELS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+  // 0=Sunday … 6=Saturday (same order the chips and weeklyReminder.js use).
+  const WEEKDAY_LABELS = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'].map(
+    (day) => t(day),
+  );
+  const weeklyDayLabel = WEEKDAY_LABELS[weeklyWeekday] || WEEKDAY_LABELS[5];
+  const weeklyTimeLabel = `${String(weeklyHour).padStart(2, '0')}:${String(weeklyMinute).padStart(2, '0')}`;
 
   const weeklySmsState = settings.weeklySmsEnabled
     ? t('فعال — هر {day} ساعت {time} ارسال میشود', {
-        day: WEEKDAY_LABELS[settings.weeklyWeekday] || WEEKDAY_LABELS[5],
-        time: `${String(settings.weeklyHour).padStart(2, '0')}:${String(settings.weeklyMinute).padStart(2, '0')}`,
+        day: weeklyDayLabel,
+        time: weeklyTimeLabel,
       }) + (silentSmsAvailable ? '' : ' ' + t('(نیاز به APK برای ارسال)'))
     : t('غیرفعال — در صورت تمایل روشن کنید');
+
+  // Classic clock dial (Android Material time picker) in 24-hour mode.
+  const openTimePicker = () => {
+    const initial = new Date();
+    initial.setHours(weeklyHour, weeklyMinute, 0, 0);
+    DateTimePickerAndroid.open({
+      value: initial,
+      mode: 'time',
+      is24Hour: true,
+      display: 'clock',
+      onChange: (event, date) => {
+        if (event?.type !== 'set' || !date) return;
+        setWeeklyHour(date.getHours());
+        setWeeklyMinute(date.getMinutes());
+      },
+    });
+  };
 
   // ── Backup & Data ────────────────────────────────────────────────────────
   // The file is handed to the Android share sheet; from there the user saves
@@ -782,41 +805,24 @@ export default function SettingsScreen({ navigation }) {
                 <View style={styles.scheduleRow}>
                   <Text style={styles.scheduleLabel}>{t('زمان ارسال')}</Text>
                   <View style={styles.timeRow}>
-                    <View style={styles.timeInputWrap}>
-                      <TextInput
-                        style={styles.timeInput}
-                        value={String(weeklyHour).padStart(2, '0')}
-                        onChangeText={(v) => {
-                          const n = parseInt(v.replace(/\D/g, ''), 10);
-                          if (!Number.isNaN(n) && n >= 0 && n <= 23) setWeeklyHour(n);
-                        }}
-                        maxLength={2}
-                        keyboardType="number-pad"
-                        textAlign="center"
-                        placeholder="۰۰"
-                      />
-                      <Text style={styles.timeColon}>:</Text>
-                      <TextInput
-                        style={styles.timeInput}
-                        value={String(weeklyMinute).padStart(2, '0')}
-                        onChangeText={(v) => {
-                          const n = parseInt(v.replace(/\D/g, ''), 10);
-                          if (!Number.isNaN(n) && n >= 0 && n <= 59) setWeeklyMinute(n);
-                        }}
-                        maxLength={2}
-                        keyboardType="number-pad"
-                        textAlign="center"
-                        placeholder="۰۰"
-                      />
-                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      style={styles.timePickerBtn}
+                      onPress={openTimePicker}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('انتخاب زمان ارسال')}
+                    >
+                      <Ionicons name="time-outline" size={18} color={colors.primary} />
+                      <Text style={styles.timePickerValue}>{weeklyTimeLabel}</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               </View>
             )}
             <Text style={styles.weeklyHint}>
               {t('برای بدهی بالای ۱٬۰۰۰٬۰۰۰ تومان، هر {day} ساعت {time} یک پیامک خودکار ارسال میشود. این قابلیت فقط در نسخه APK موجود است و هر مشتری در هفته یک بار پیامک میگیرد.', {
-                  day: WEEKDAY_LABELS[settings.weeklyWeekday] || WEEKDAY_LABELS[5],
-                  time: `${String(settings.weeklyHour).padStart(2, '0')}:${String(settings.weeklyMinute).padStart(2, '0')}`,
+                  day: weeklyDayLabel,
+                  time: weeklyTimeLabel,
                 })}
             </Text>
           </View>
@@ -1226,31 +1232,25 @@ const styles = StyleSheet.create({
   timeTextActive: {
     color: colors.white,
   },
-  timeInputWrap: {
-    flex: 1,
-    flexDirection: 'row-reverse',
+  timePickerBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeInput: {
-    width: 36,
-    height: 32,
-    borderWidth: 1,
-    borderColor: colors.border,
+    height: 40,
     borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
     backgroundColor: colors.card,
-    fontSize: 13,
-    color: colors.text,
-    textAlign: 'center',
-    writingDirection: 'ltr',
-    marginHorizontal: 4,
-    fontFamily: 'sans-serif-monospace',
+    paddingHorizontal: 14,
+    ...shadows.card,
   },
-  timeColon: {
-    fontSize: 14,
+  timePickerValue: {
+    fontSize: 18,
     fontWeight: '800',
     color: colors.text,
-    marginHorizontal: 2,
+    marginLeft: 8,
+    letterSpacing: 1,
+    writingDirection: 'ltr',
+    fontFamily: 'sans-serif-monospace',
   },
 
   smsCard: {

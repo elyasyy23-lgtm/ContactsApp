@@ -47,7 +47,7 @@ class SmsReaderModule : Module() {
     private const val KEY_WEEKLY_EVENTS = "weekly_events"
     private const val WEEKLY_REQUEST_CODE = 91001
     private const val DEFAULT_THRESHOLD = 1000.0
-    private const val DEFAULT_WEEKLY_WEEKDAY = 5 // Calendar.FRIDAY
+    private const val DEFAULT_WEEKLY_WEEKDAY = Calendar.FRIDAY // 6, native 1=Sun .. 7=Sat
     private const val DEFAULT_WEEKLY_HOUR = 10
     private const val DEFAULT_WEEKLY_MINUTE = 0
     private const val DAY_MS = 24L * 60L * 60L * 1000L
@@ -404,6 +404,8 @@ class SmsReaderModule : Module() {
     // ── Weekly Friday 10:00 reminder ───────────────────────────────────────
     // JS sends a fresh snapshot; the native side owns the alarm, the per-user
     // sent map, and the actual silent SmsManager send.
+    // Weekday convention crossing the bridge is java.util.Calendar (1=Sun..7=Sat);
+    // JS converts its 0..6 value with toNativeWeekday() before calling in.
 
     AsyncFunction("setWeeklyReminderConfig") { config: Map<String, Any?> ->
       val context = appContext.reactContext

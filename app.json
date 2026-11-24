@@ -2,7 +2,7 @@
   "expo": {
     "name": "حسابیار",
     "slug": "ContactsApp",
-    "version": "1.5.1",
+    "version": "1.5.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "versionCode": 13,
+      "versionCode": 14,
       "package": "com.elyasyass.ContactsApp"
     },
     "web": {
@@ -36,7 +36,8 @@
     "plugins": [
       "expo-sharing",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

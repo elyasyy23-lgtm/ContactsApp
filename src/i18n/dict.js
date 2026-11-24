@@ -271,6 +271,7 @@ export const en = {
   'غیرفعال — در صورت تمایل روشن کنید': 'Off — turn on if you want it',
   'روز هفته': 'Weekday',
   'زمان ارسال': 'Send time',
+  'انتخاب زمان ارسال': 'Choose send time',
   'بامداد': 'Morning',
   'عصر': 'Afternoon',
   'یکشنبه': 'Sunday',
