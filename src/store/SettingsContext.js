@@ -29,7 +29,7 @@ const EMPTY = {
   // Local CCTV/DVR archive settings. All values stay ASCII: IP is a plain
   // string, port is digits-only, username/password/serial are stored as typed.
   dvrIp: '',
-  // Port 34567 is the DVRIP control port; archive video goes to RTSP 554.
+  // DVRIP control port as configured on this DVR; RTSP video stays 554.
   dvrPort: '34567',
   rtspPort: '554',
   // Cameras 1-4 are active on the shop DVR (channels are 1-based over RTSP).

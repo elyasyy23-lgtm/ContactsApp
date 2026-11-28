@@ -19,6 +19,12 @@ data class ArchiveFile(
   val size: Long
 )
 
+/** The result of a best-effort archive lookup across both codecs. */
+data class ArchiveQuery(
+  val files: List<ArchiveFile>,
+  val attempts: List<String>
+)
+
 /**
  * Minimal Xiongmai / XMEye (Sofia) DVRIP client.
  *
@@ -65,6 +71,18 @@ class DvripClient(
     private const val MSG_FILE_QUERY = 1440
     private const val MSG_PLAYBACK = 1420
     private const val MSG_PLAYBACK_CLAIM = 1424
+
+    /**
+     * DVRIP 1550 OPNetKeyboard: presses the keys of the DVR's OWN keypad.
+     * It is the only documented channel that can drive what the recorder shows
+     * on its HDMI/VGA monitor — playback of a recording on that monitor is
+     * reachable only through this remote keypad, never through a stream call.
+     */
+    private const val MSG_NET_KEYBOARD = 1550
+
+    const val KEY_RETURN = 27
+    const val KEY_PLAY = 30
+    const val KEY_SEARCH = 41
 
     /** DVRIP return codes that mean "the request succeeded". */
     private val OK_CODES = setOf(100, 515)
@@ -275,8 +293,60 @@ class DvripClient(
     if (alive > 0) aliveIntervalMs = (alive * 1000L).coerceAtLeast(10_000L)
   }
 
-  /** The device sends "0x00000000" but some firmwares send plain decimals. */
-  private fun parseSession(value: String): Int {
+  // ---------------------------------------------------------- monitor keypad
+
+  /**
+   * Presses one key on the recorder's own keypad (DVRIP 1550 OPNetKeyboard).
+   * iState 0 = key down, 1 = key up; both are sent so the on-screen menu
+   * registers a real press.
+   */
+  private fun pressKey(value: Int): Int {
+    var ret = -1
+    for (state in 0..1) {
+      val payload = JSONObject()
+        .put("Name", "OPNetKeyboard")
+        .put(
+          "OPNetKeyboard",
+          JSONObject()
+            .put("Status", if (state == 0) "KeyDown" else "KeyUp")
+            .put("Value", value)
+        )
+      ret = sendAndRead(MSG_NET_KEYBOARD, payload).optInt("Ret", -1)
+      if (ret !in OK_CODES) return ret
+    }
+    return ret
+  }
+
+  /** The keys needed to show [startMs] on the monitor: SEARCH, digits, RET, PLAY. */
+  fun monitorKeySequence(startMs: Long): List<Int> {
+    val stamp = java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.US)
+      .format(Date(startMs))
+    val keys = ArrayList<Int>(stamp.length + 3)
+    keys.add(KEY_SEARCH)
+    for (character in stamp) keys.add(character - '0')
+    keys.add(KEY_RETURN)
+    keys.add(KEY_PLAY)
+    return keys
+  }
+
+  /**
+   * Opens record search on the recorder's monitor, types the wanted moment and
+   * starts playback there. Returns every (key, return code) pair so the app can
+   * show exactly which press the box refused.
+   */
+  fun playArchiveOnMonitor(startMs: Long): List<Pair<Int, Int>> {
+    val results = ArrayList<Pair<Int, Int>>()
+    for (key in monitorKeySequence(startMs)) {
+      val ret = pressKey(key)
+      results.add(key to ret)
+      if (ret !in OK_CODES) {
+        throw DvripException("key $key rejected: ${describeRet(ret)}")
+      }
+    }
+    return results
+  }
+
+  /** The device sends "0x00000000" but some firmwares send plain decimals. */  private fun parseSession(value: String): Int {
     val text = value.trim().removePrefix("0x").removePrefix("0X")
     return try {
       if (value.trim().startsWith("0x", ignoreCase = true)) text.toLong(16).toInt() else text.toLong().toInt()
@@ -285,7 +355,7 @@ class DvripClient(
     }
   }
 
-  private fun queryJson(begin: String, end: String, channel: Int): JSONObject =
+  private fun queryJson(begin: String, end: String, channel: Int, type: String): JSONObject =
     JSONObject()
       .put("Name", "OPFileQuery")
       .put(
@@ -297,7 +367,7 @@ class DvripClient(
           .put("EndTime", end)
           .put("Event", "*")
           .put("StreamType", "0x00000000")
-          .put("Type", "h264")
+          .put("Type", type)
       )
 
   private fun filesFrom(reply: JSONObject): List<ArchiveFile> {
@@ -325,15 +395,22 @@ class DvripClient(
   }
 
   /** OPFileQuery (1440) with the 64-row pagination the device uses. */
-  fun queryFiles(begin: String, end: String, channel: Int): List<ArchiveFile> {
+  fun queryFiles(
+    begin: String,
+    end: String,
+    channel: Int,
+    type: String = "h264"
+  ): List<ArchiveFile> {
     var cursor = begin
     val collected = ArrayList<ArchiveFile>()
     var guard = 0
     while (guard < 40) {
       guard += 1
-      val reply = sendAndRead(MSG_FILE_QUERY, queryJson(cursor, end, channel))
+      val reply = sendAndRead(MSG_FILE_QUERY, queryJson(cursor, end, channel, type))
       val ret = reply.optInt("Ret", -1)
-      if (ret !in OK_CODES) break
+      if (ret !in OK_CODES) {
+        throw DvripException("file query ($type) refused: ${describeRet(ret)} ($ret)")
+      }
       val page = filesFrom(reply)
       if (page.isEmpty()) break
       collected.addAll(page)
@@ -343,6 +420,24 @@ class DvripClient(
       cursor = next
     }
     return collected
+  }
+
+  /**
+   * Some firmware indexes H.265 recordings under a different Type string. Try
+   * both, keep every answer, and never hide a device Ret behind an empty list.
+   */
+  fun queryBothFiles(begin: String, end: String, channel: Int): ArchiveQuery {
+    val attempts = ArrayList<String>()
+    for (type in listOf("h264", "h265")) {
+      try {
+        val files = queryFiles(begin, end, channel, type)
+        attempts.add("$type=${files.size}")
+        if (files.isNotEmpty()) return ArchiveQuery(files, attempts)
+      } catch (error: DvripException) {
+        attempts.add("$type=${error.message}")
+      }
+    }
+    return ArchiveQuery(emptyList(), attempts)
   }
 
   /**

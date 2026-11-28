@@ -264,8 +264,9 @@ class SmsReaderModule : Module() {
         val body = contact.optString("body", "")
         if (id.isEmpty() || phone.isEmpty() || body.isEmpty()) continue
 
-        // Per-customer weekly reminder opt-out: skip if weeklyReminderEnabled is false
-        val weeklyReminderEnabled = contact.optBoolean("weeklyReminderEnabled", true)
+        // Per-customer weekly reminder opt-in: only an explicit `true` may send.
+        // Missing field (old record) = OFF, so an old customer is never auto-enabled.
+        val weeklyReminderEnabled = contact.optBoolean("weeklyReminderEnabled", false)
         if (!weeklyReminderEnabled) continue
 
         val storedWeek = sent.optString(id, "")

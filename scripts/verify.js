@@ -732,7 +732,7 @@ try {
   assert.strictEqual(rtsp.rtspPortOf({}), '554', 'RTSP defaults to 554');
   assert.strictEqual(rtsp.rtspPortOf({ rtspPort: '8554' }), '8554', 'a custom RTSP port is used');
   assert.strictEqual(rtsp.dvripPortOf({}), '34567', 'DVRIP defaults to 34567');
-  assert.strictEqual(rtsp.dvripPortOf({ dvrPort: '34286' }), '34286', 'a moved DVRIP port is used');
+  assert.strictEqual(rtsp.dvripPortOf({ dvrPort: '8554' }), '8554', 'a moved DVRIP port is used');
   assert.strictEqual(rtsp.channelOf({ dvrChannel: 3 }), 3, 'the channel is configurable');
   assert.strictEqual(rtsp.channelOf({ dvrChannel: 99 }), 4, 'the channel is clamped to 4');
   assert.strictEqual(rtsp.channelOf({}), 1, 'channel 1 is the default');
@@ -849,38 +849,27 @@ try {
     path.join(srcDir, 'screens/CctvPlayerScreen.js'),
     'utf8',
   );
-  assert.ok(cctvPlayerSrc.includes('لینک RTSP آرشیو'), 'the player shows the archive link');
-  assert.ok(cctvPlayerSrc.includes('maskRtspUrl'), 'the player masks the password');
-  assert.ok(cctvPlayerSrc.includes('لینک RTSP کپی نشد.'), 'copy failure uses the honest message');
-  assert.ok(!cctvPlayerSrc.includes('expo-video'), 'the Expo Go screen stays native-video free');
   assert.ok(
-    cctvPlayerSrc.includes('playArchive({'),
-    'the player uses the native DVRIP archive fetch',
+    cctvPlayerSrc.includes('نمایش آرشیو روی مانیتور DVR'),
+    'one transaction-archive button drives the DVR monitor',
   );
+  assert.ok(cctvPlayerSrc.includes('playOnTv({'), 'the button sends the DVRIP keypad command');
+  assert.ok(cctvPlayerSrc.includes('addCctvListener'), 'native stage/error events are observed');
+  assert.ok(cctvPlayerSrc.includes('event.stage'), 'the exact failure stage is shown to the user');
   assert.ok(
-    cctvPlayerSrc.includes('streamArchive({'),
-    'the player streams the archive while it downloads (XMEye behaviour)',
+    cctvPlayerSrc.includes('leadMinutes: 120') && cctvPlayerSrc.includes('tailMinutes: 120'),
+    'the diagnostic lookup window is ±120 minutes',
   );
-  assert.ok(
-    /autoStartedRef[\s\S]{0,400}streamClip\(\)/.test(cctvPlayerSrc),
-    'opening the screen starts the native archive stream (primary action)',
-  );
-  assert.ok(
-    cctvPlayerSrc.includes('probeGuest({'),
-    'the player can measure guest/anonymous access without changing the DVR',
-  );
-  assert.ok(
-    cctvPlayerSrc.includes('subStream') && cctvPlayerSrc.includes('streamType:'),
-    'the stream quality (sub/main) is selectable',
-  );
-  assert.ok(
-    cctvPlayerSrc.includes('مگابایت بر ثانیه') && cctvPlayerSrc.includes('سرعت'),
-    'the streaming card reports transfer speed',
-  );
-  assert.ok(
-    cctvPlayerSrc.includes('پخش آرشیو ضبط‌شده (تضمینی)'),
-    'the primary card states that the recorded archive is guaranteed',
-  );
+  assert.ok(!cctvPlayerSrc.includes('stopArchive'), 'nothing can cancel an active playback request');
+  assert.ok(!cctvPlayerSrc.includes('playArchive({'), 'the download/VLC path is removed');
+  assert.ok(!cctvPlayerSrc.includes('openLocalFileInVlc'), 'VLC is no longer handed a local file');
+  assert.ok(!cctvPlayerSrc.includes('streamArchive'), 'the streaming path is removed');
+  assert.ok(!cctvPlayerSrc.includes('triggerTVPlayback'), 'the obsolete CGI path is removed');
+  assert.ok(!cctvPlayerSrc.includes('buildLiveCandidates'), 'the live-stream control is removed');
+  assert.ok(!cctvPlayerSrc.includes('buildPlaybackCandidates'), 'the RTSP candidate list is removed');
+  assert.ok(!cctvPlayerSrc.includes('subStream'), 'the full/light quality control is removed');
+  assert.ok(!cctvPlayerSrc.includes('expo-video'), 'the screen stays native-video free');
+  assert.ok(!cctvPlayerSrc.includes('autoStartedRef'), 'playback starts from the button, never on mount');
 
   // Raw Annex-B H.264 is refused by VLC for Android: the stream and the
   // downloaded clip must both be wrapped in MPEG-TS before a player sees them.
@@ -910,22 +899,35 @@ try {
     path.join(cctvModuleDir, 'android/src/main/java/expo/modules/cctvplayback/CctvPlaybackModule.kt'),
     'utf8',
   );
-  assert.ok(moduleSrc.includes('muxToTs(') && moduleSrc.includes('"lanUrl"'),
-    'the downloaded clip is remuxed and the LAN URL is reported to JS');
-  assert.ok(cctvPlayerSrc.includes('lanUrl') && cctvPlayerSrc.includes('پخش روی تلویزیون از طریق شبکه'),
-    'the player exposes the TV/LAN playback card');
+  assert.ok(moduleSrc.includes('WINDOW_MINUTES = 120'),
+    'the native diagnostic lookup window is ±120 minutes');
+  assert.ok(moduleSrc.includes('queryBothFiles('),
+    'both H.264 and H.265 archive indexes are attempted');
+  assert.ok(moduleSrc.includes('query.attempts.joinToString'),
+    'every codec/Ret attempt is surfaced to JS and diagnostics');
+  assert.ok(moduleSrc.includes('playArchiveOnMonitor('),
+    'the keypad command drives the recorder monitor');
+  assert.ok(moduleSrc.includes('"stage" to "query"'),
+    'the query stage is reported with its codec/Ret detail');
+  assert.ok(moduleSrc.includes('E_TV_PLAYBACK'),
+    'failures reject with a named code and the failing stage');
+
+  const dvripSrc = fs.readFileSync(
+    path.join(cctvModuleDir, 'android/src/main/java/expo/modules/cctvplayback/DvripClient.kt'),
+    'utf8',
+  );
+  assert.ok(dvripSrc.includes('queryBothFiles(') && dvripSrc.includes('"h265"'),
+    'H.265 is queried as well as H.264');
+  assert.ok(dvripSrc.includes('file query ($type) refused: ${describeRet(ret)} ($ret)'),
+    'the actual numeric Ret is carried into the error text');
+  assert.ok(!cctvPlayerSrc.includes('lanUrl'), 'the TV/LAN playback card is removed');
+  assert.ok(
+    !cctvPlayerSrc.includes('گزینه‌های پیشرفتهٔ RTSP'),
+    'the advanced RTSP section is removed (it played LIVE on this firmware)',
+  );
   assert.ok(
     !cctvPlayerSrc.includes('پخش آرشیو در VLC (بدون پنجرهٔ رمز)'),
-    'the RTSP shape is no longer the primary card (it played LIVE on this firmware)',
-  );
-  assert.ok(
-    cctvPlayerSrc.includes('گزینه‌های پیشرفتهٔ RTSP'),
-    'RTSP shapes are demoted to an advanced section',
-  );
-  assert.ok(
-    cctvPlayerSrc.indexOf('پخش آرشیو ضبط‌شده (تضمینی)') <
-      cctvPlayerSrc.indexOf('گزینه‌های پیشرفتهٔ RTSP'),
-    'the guaranteed native card renders above the RTSP options',
+    'the RTSP shape is no longer offered as a playback action',
   );
 
   const cctvDictSrc = fs.readFileSync(path.join(srcDir, 'i18n/dict.js'), 'utf8');
@@ -961,8 +963,8 @@ try {
   }
   assert.deepStrictEqual(missingKeys, [], 'every CCTV screen string is translated');
 
-  assert.ok(cctvPlayerSrc.includes('buildPlaybackCandidates'), 'the player offers the RTSP fallbacks');
-  assert.ok(cctvPlayerSrc.includes('safeRtspPort'), 'the player forces the RTSP port, not the DVRIP port');
+  assert.ok(!cctvPlayerSrc.includes('buildPlaybackCandidates'), 'the RTSP fallback list is gone');
+  assert.ok(!cctvPlayerSrc.includes('safeRtspPort'), 'the RTSP port is no longer used by the player');
   // Guest first; the credential path is only a fallback, and it must stay in
   // the path (`user=…&password=…`), never as RTSP userinfo — userinfo is what
   // makes VLC raise its own username/password dialog.
@@ -991,7 +993,7 @@ try {
     null,
     'no stored password means no auth candidate',
   );
-  assert.ok(cctvPlayerSrc.includes('probeRtsp'), 'the player probes the DVR before handing a URL to VLC');
+  assert.ok(!cctvPlayerSrc.includes('probeRtsp'), 'the RTSP probe path is removed from the player');
   assert.ok(cctvSettingsScreen.includes('rtspPort'), 'settings expose the RTSP port');
   assert.ok(cctvSettingsScreen.includes('dvrChannel'), 'settings expose the camera channel');
   assert.ok(
@@ -1209,6 +1211,7 @@ try {
   const wkReady = { settingsReady: true, hasPhone: true };
   const wkSend = weeklyReminder.weeklyReminderDecision({
     now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
+    weeklyReminderEnabled: true, // weekly reminder is opt-in
   });
   assert.strictEqual(wkSend.action, 'send', 'eligible debt should send');
   assert.strictEqual(wkSend.week, wkSlot);
@@ -1230,6 +1233,7 @@ try {
   const satSend = weeklyReminder.weeklyReminderDecision({
     now: wkSat14, sentWeek: '', balance: 1001, ...wkSatReady,
     weekday: satWeekday, hour: satHour, minute: satMinute,
+    weeklyReminderEnabled: true, // weekly reminder is opt-in
   });
   assert.strictEqual(satSend.action, 'send', 'Saturday 14:30 eligible debt should send');
   assert.strictEqual(weeklyReminder.weeklyReminderDecision({
@@ -1252,8 +1256,51 @@ try {
   }).action, 'none', 'weeklyReminderEnabled=false blocks weekly send');
   assert.strictEqual(weeklyReminder.weeklyReminderDecision({
     now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
-    // missing field defaults to true
-  }).action, 'send', 'missing weeklyReminderEnabled defaults to true (backward compat)');
+    // missing field must be OFF (opt-in only) — old records never auto-enable
+  }).action, 'none', 'missing weeklyReminderEnabled defaults to OFF (opt-in)');
+  assert.strictEqual(weeklyReminder.weeklyReminderDecision({
+    now: wkFri, sentWeek: '', balance: 1001, ...wkReady,
+    weeklyReminderEnabled: undefined,
+  }).action, 'none', 'undefined weeklyReminderEnabled blocks weekly send');
+
+  // ── Weekly schedule normalization (persistence bug 2026-11-24) ────────────
+  // 0 is a valid weekday/hour/minute: Sunday and 00:00 used to be swallowed by
+  // `value || default`, so reopening Settings showed Friday 10:00 again.
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({ weekday: 0, hour: 0, minute: 0 }),
+    { weekday: 0, hour: 0, minute: 0 },
+    'Sunday 00:00 must be preserved (0 is valid, not a fallback trigger)',
+  );
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({ weekday: 2, hour: 10, minute: 0 }),
+    { weekday: 2, hour: 10, minute: 0 },
+    'Tuesday 10:00 round-trips unchanged',
+  );
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({ weekday: 6, hour: 23, minute: 59 }),
+    { weekday: 6, hour: 23, minute: 59 },
+    'Saturday 23:59 boundary accepted',
+  );
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({}),
+    { weekday: 5, hour: 10, minute: 0 },
+    'missing schedule falls back to Friday 10:00',
+  );
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({ weekday: 7, hour: 24, minute: 60 }),
+    { weekday: 5, hour: 10, minute: 0 },
+    'out-of-range schedule falls back to Friday 10:00',
+  );
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({ weekday: -1, hour: -5, minute: -1 }),
+    { weekday: 5, hour: 10, minute: 0 },
+    'negative schedule values fall back to default',
+  );
+  assert.deepStrictEqual(
+    weeklyReminder.normalizeWeeklySchedule({ weekday: '2', hour: '0', minute: '5' }),
+    { weekday: 2, hour: 0, minute: 5 },
+    'numeric strings are coerced (hour 0 preserved)',
+  );
 
   // Ensure opt-out does NOT affect crossing reminder
   assert.strictEqual(gate.reminderAction({ 
@@ -1312,16 +1359,12 @@ function checkDocumentationSync() {
     return false;
   }
   
-  // Check 2: weeklyReminderEnabled default in ContactsContext.js must be false (default)
+  // Check 2: normalizeContact must keep weeklyReminderEnabled strictly opt-in:
+  // only a stored `true` survives, so old/null/undefined records load OFF.
   const contactsContext = fs.readFileSync(path.join(ROOT, 'src/store/ContactsContext.js'), 'utf8');
-  const weeklyReminderEnabledDefault = /weeklyReminderEnabled:\s*(\w+)/.exec(contactsContext);
-  if (weeklyReminderEnabledDefault && weeklyReminderEnabledDefault[1] !== 'false' && weeklyReminderEnabledDefault[1] !== 'true') {
-    // If not explicitly set, check normalize function default
-    const normalizeMatch = /weeklyReminderEnabled:\s*c\.weeklyReminderEnabled\s*===\s*undefined\s*\?\s*(\w+)/.exec(contactsContext);
-    if (normalizeMatch && normalizeMatch[1] !== 'false') {
-      console.error('DOC SYNC FAIL: ContactsContext.js weeklyReminderEnabled default is not false');
-      return false;
-    }
+  if (!/weeklyReminderEnabled:\s*c\.weeklyReminderEnabled\s*===\s*true\b/.test(contactsContext)) {
+    console.error('DOC SYNC FAIL: ContactsContext.js weeklyReminderEnabled must be strict opt-in (=== true)');
+    return false;
   }
   
   // Check 3: the weekly time is chosen with the native CLOCK picker, not typed
@@ -1361,6 +1404,60 @@ function checkDocumentationSync() {
     return false;
   }
   
+  // Check 6: the weekly opt-in must be strict `=== true` everywhere, so an old
+  // record without the field reads OFF and the switch can never look re-enabled.
+  const formScreen = fs.readFileSync(path.join(ROOT, 'src/screens/CustomerFormScreen.js'), 'utf8');
+  if (!/existing\.weeklyReminderEnabled\s*===\s*true\s*:\s*false/.test(formScreen)) {
+    console.error('DOC SYNC FAIL: CustomerFormScreen.js weekly toggle must default OFF (=== true : false)');
+    return false;
+  }
+  if (/existing\.weeklyReminderEnabled\s*!==\s*false/.test(formScreen)) {
+    console.error('DOC SYNC FAIL: CustomerFormScreen.js still treats a missing weekly flag as ON');
+    return false;
+  }
+  const weeklySync = fs.readFileSync(path.join(ROOT, 'src/components/WeeklyReminderSync.js'), 'utf8');
+  if (!/weeklyReminderEnabled\s*===\s*true/.test(weeklySync)) {
+    console.error('DOC SYNC FAIL: WeeklyReminderSync.js must gate on weeklyReminderEnabled === true');
+    return false;
+  }
+  const smsModule = fs.readFileSync(
+    path.join(ROOT, 'modules/sms-reader/android/src/main/java/expo/modules/smsreader/SmsReaderModule.kt'),
+    'utf8',
+  );
+  if (!/optBoolean\("weeklyReminderEnabled",\s*false\)/.test(smsModule)) {
+    console.error('DOC SYNC FAIL: SmsReaderModule.kt must default weeklyReminderEnabled to false');
+    return false;
+  }
+
+  // Check 7: the weekly schedule must persist. The screen may not initialise
+  // local state with `|| default` (kills Sunday / 00:xx), must re-sync from the
+  // persisted settings, and must save the day/time the moment it is chosen.
+  if (/Number\(settings\.weeklyWeekday\)\s*\|\|/.test(settingsScreen) ||
+      /Number\(settings\.weeklyHour\)\s*\|\|/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js still falls back with `||`, discarding Sunday/00:xx');
+    return false;
+  }
+  if (!/normalizeWeeklySchedule\(settings\)/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js must initialise weekly state via normalizeWeeklySchedule(settings)');
+    return false;
+  }
+  if (!/useEffect\(\(\) => \{[\s\S]*?setWeeklyWeekday\(synced\.weekday\)[\s\S]*?\}, \[settings\.weeklyWeekday, settings\.weeklyHour, settings\.weeklyMinute\]\)/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js must re-sync weekly state when persisted settings change');
+    return false;
+  }
+  if (!/const applyWeeklySchedule = \(patch\) => \{[\s\S]*?saveSettings\(\{[\s\S]*?weeklyWeekday: next\.weekday/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js must persist the weekly schedule immediately on change');
+    return false;
+  }
+  if (/onPress=\{\(\) => setWeeklyWeekday\(index\)\}/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js weekday chip changes local state without persisting');
+    return false;
+  }
+  if (/setWeeklyHour\(date\.getHours\(\)\)/.test(settingsScreen)) {
+    console.error('DOC SYNC FAIL: SettingsScreen.js time picker changes local state without persisting');
+    return false;
+  }
+
   // Check 5: Documentation files must not say "Default: ON" or "default true" for weekly reminders
   const docFilesPaths = [
     path.join(ROOT, 'CHANGELOG.md'),

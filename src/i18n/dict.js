@@ -450,6 +450,26 @@ Object.assign(en, {
 // CCTV / DVR archive playback (v1.6 WIP).
 Object.assign(en, {
   'پخش فیلم دوربین': 'Play camera video',
+  'پخش فیلم تراکنش': 'Play transaction video',
+  'بازهٔ آرشیو': 'Archive range',
+  'پورت DVRIP': 'DVRIP port',
+  'نمایش آرشیو روی مانیتور DVR': 'Show archive on DVR monitor',
+  'برای ارسال دستور پخش، رمز DVR را در تنظیمات وارد کنید.':
+    'Enter the DVR password in Settings to send the playback command.',
+  'آرشیو روی مانیتور DVR نمایش داده شد.': 'The archive is now shown on the DVR monitor.',
+  'دستور پخش ناموفق بود ({reason}{detail}). پورت DVRIP فعلی: {port}':
+    'Playback command failed ({reason}{detail}). Current DVRIP port: {port}',
+  'جستجوی فایل آرشیو فقط برای تشخیص است و بازهٔ ±۱۲۰ دقیقه را بررسی میکند. تصویر روی مانیتور متصل به DVR نمایش داده میشود.':
+    'The archive lookup is diagnostic only and checks a ±120-minute window. The picture appears on the monitor connected to the DVR.',
+  'مرحله': 'Stage',
+  'نتیجهٔ جستجو': 'Lookup result',
+  'اتصال': 'Connecting',
+  'ورود': 'Login',
+  'جستجو': 'Lookup',
+  'کلیدها': 'Keys',
+  'تکمیل': 'Done',
+  'آرشیو از دستگاه دریافت و در VLC پخش می‌شود؛ بازهٔ زمانی از پنج دقیقه قبل تا پنج دقیقه بعد از تراکنش است.':
+    'The archive is fetched from the device and played in VLC; the window is five minutes before to five minutes after the transaction.',
   'اطلاعات فروشگاه و دوربین با موفقیت ذخیره شد.': 'Shop and camera settings saved successfully.',
   'آدرس DVR نامعتبر': 'Invalid DVR address',
   'آدرس IP معتبر وارد کنید (مثلاً 192.168.1.64).': 'Enter a valid IP address (for example 192.168.1.64).',

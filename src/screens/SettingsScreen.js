@@ -1,6 +1,6 @@
 // Shop settings: my name, card number, shop name.
 // These values feed the reminder SMS (card + owner name) and the home header.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -38,6 +38,7 @@ import {
 } from '../utils/rtsp';
 import { triggerTVPlayback } from '../utils/tvPlayback';
 import { CCTV_LOG_SECTIONS } from '../utils/diagnostics';
+import { normalizeWeeklySchedule } from '../utils/weeklyReminder';
 import { useCctvDiagnosticsActions } from '../store/DiagnosticsContext';
 import { LANGUAGES, t } from '../i18n';
 import { useLang } from '../i18n/LanguageContext';
@@ -100,10 +101,22 @@ export default function SettingsScreen({ navigation }) {
   const [cardNumber, setCardNumber] = useState(settings.cardNumber || '');
   const [shopName, setShopName] = useState(settings.shopName || '');
   const [newSender, setNewSender] = useState('');
-  // Weekly schedule state
-  const [weeklyWeekday, setWeeklyWeekday] = useState(Number(settings.weeklyWeekday) || 5);
-  const [weeklyHour, setWeeklyHour] = useState(Number(settings.weeklyHour) || 10);
-  const [weeklyMinute, setWeeklyMinute] = useState(Number(settings.weeklyMinute) || 0);
+  // Weekly schedule state. Mirrors the persisted settings and is re-synced below;
+  // 0 (Sunday / hour 00) is a VALID value, so never fall back with `||`.
+  const initialWeeklySchedule = normalizeWeeklySchedule(settings);
+  const [weeklyWeekday, setWeeklyWeekday] = useState(initialWeeklySchedule.weekday);
+  const [weeklyHour, setWeeklyHour] = useState(initialWeeklySchedule.hour);
+  const [weeklyMinute, setWeeklyMinute] = useState(initialWeeklySchedule.minute);
+
+  // Re-sync whenever the persisted settings change (async hydration on launch,
+  // an external save, a restore). Without this the screen kept the first-render
+  // defaults and the next Save wrote Friday 10:00 back over the chosen day.
+  useEffect(() => {
+    const synced = normalizeWeeklySchedule(settings);
+    setWeeklyWeekday(synced.weekday);
+    setWeeklyHour(synced.hour);
+    setWeeklyMinute(synced.minute);
+  }, [settings.weeklyWeekday, settings.weeklyHour, settings.weeklyMinute]);
   const [dvrIp, setDvrIp] = useState(settings.dvrIp || '');
   const [dvrPort, setDvrPort] = useState(settings.dvrPort || '34567');
   const [rtspPort, setRtspPort] = useState(settings.rtspPort || '554');
@@ -334,6 +347,26 @@ export default function SettingsScreen({ navigation }) {
       }) + (silentSmsAvailable ? '' : ' ' + t('(نیاز به APK برای ارسال)'))
     : t('غیرفعال — در صورت تمایل روشن کنید');
 
+  // Persist the schedule the moment it is chosen: selecting a day or a time
+  // must survive leaving the screen (the old code only saved it when the big
+  // Save button happened to be pressed).
+  const applyWeeklySchedule = (patch) => {
+    const next = normalizeWeeklySchedule({
+      weekday: weeklyWeekday,
+      hour: weeklyHour,
+      minute: weeklyMinute,
+      ...patch,
+    });
+    setWeeklyWeekday(next.weekday);
+    setWeeklyHour(next.hour);
+    setWeeklyMinute(next.minute);
+    saveSettings({
+      weeklyWeekday: next.weekday,
+      weeklyHour: next.hour,
+      weeklyMinute: next.minute,
+    });
+  };
+
   // Classic clock dial (Android Material time picker) in 24-hour mode.
   const openTimePicker = () => {
     const initial = new Date();
@@ -345,8 +378,7 @@ export default function SettingsScreen({ navigation }) {
       display: 'clock',
       onChange: (event, date) => {
         if (event?.type !== 'set' || !date) return;
-        setWeeklyHour(date.getHours());
-        setWeeklyMinute(date.getMinutes());
+        applyWeeklySchedule({ hour: date.getHours(), minute: date.getMinutes() });
       },
     });
   };
@@ -788,7 +820,7 @@ export default function SettingsScreen({ navigation }) {
                           styles.weekdayBtn,
                           weeklyWeekday === index && styles.weekdayBtnActive,
                         ]}
-                        onPress={() => setWeeklyWeekday(index)}
+                        onPress={() => applyWeeklySchedule({ weekday: index })}
                       >
                         <Text
                           style={[

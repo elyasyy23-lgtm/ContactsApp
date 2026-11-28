@@ -60,9 +60,11 @@ export default function CustomerFormScreen({ navigation, route }) {
   const [reminderEnabled, setReminderEnabled] = useState(
     existing ? existing.reminderEnabled !== false : true,
   );
-  // Per-customer weekly scheduled reminder opt-out — default ON.
+  // Per-customer weekly scheduled reminder — OPT-IN, default OFF.
+  // A missing field (old record) must read OFF, never ON, otherwise the switch
+  // looks like it re-enabled itself after being turned off.
   const [weeklyReminderEnabled, setWeeklyReminderEnabled] = useState(
-    existing ? existing.weeklyReminderEnabled !== false : true,
+    existing ? existing.weeklyReminderEnabled === true : false,
   );
 
   const save = () => {

@@ -17,6 +17,27 @@ export const DEFAULT_WEEKLY_WEEKDAY = 5;
 export const DEFAULT_WEEKLY_HOUR = 10;
 export const DEFAULT_WEEKLY_MINUTE = 0;
 
+const clampWeeklyInt = (value, min, max, fallback) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  const truncated = Math.trunc(number);
+  return truncated < min || truncated > max ? fallback : truncated;
+};
+
+/**
+ * Coerce a stored/edited schedule into valid values.
+ * IMPORTANT: 0 IS a valid value (Sunday, 00:xx) — never use `|| default`,
+ * which silently turned Sunday into Friday and 00:00 into 10:00.
+ * Missing/invalid fields fall back to the Friday 10:00 default.
+ */
+export function normalizeWeeklySchedule({ weekday, hour, minute } = {}) {
+  return {
+    weekday: clampWeeklyInt(weekday, 0, 6, DEFAULT_WEEKLY_WEEKDAY),
+    hour: clampWeeklyInt(hour, 0, 23, DEFAULT_WEEKLY_HOUR),
+    minute: clampWeeklyInt(minute, 0, 59, DEFAULT_WEEKLY_MINUTE),
+  };
+}
+
 /**
  * The native module (Android `java.util.Calendar`) counts weekdays as
  * 1=Sunday … 7=Saturday, while the JS side (and the UI chips) use
@@ -109,7 +130,7 @@ export function weeklyReminderDecision({
   weekday = DEFAULT_WEEKLY_WEEKDAY,
   hour = DEFAULT_WEEKLY_HOUR,
   minute = DEFAULT_WEEKLY_MINUTE,
-  weeklyReminderEnabled = true, // per-customer opt-out for weekly scheduled reminder
+  weeklyReminderEnabled = false, // per-customer weekly reminder is OPT-IN: missing/undefined means OFF
 } = {}) {
   const slot = weeklySlotFor(now, weekday, hour, minute);
   if (!slot) return { action: 'none', week: null };
@@ -118,9 +139,10 @@ export function weeklyReminderDecision({
   // CRITICAL: balance must be STRICTLY GREATER than threshold (1,000,000 Toman = 1000 ledger units)
   if ((Number(balance) || 0) <= (Number(threshold) || 0)) return { action: 'none', week: slot };
   if (!settingsReady || !hasPhone) return { action: 'none', week: slot };
-  // Per-customer opt-out: when weeklyReminderEnabled is false, exclude from weekly scheduled reminder only.
+  // Per-customer opt-in: only an explicit `true` allows the weekly scheduled
+  // reminder. Missing/undefined/false all block it (old records stay OFF).
   // Does NOT affect the existing threshold-crossing debt reminder.
-  if (weeklyReminderEnabled === false) return { action: 'none', week: slot };
+  if (weeklyReminderEnabled !== true) return { action: 'none', week: slot };
   return { action: 'send', week: slot };
 }
 

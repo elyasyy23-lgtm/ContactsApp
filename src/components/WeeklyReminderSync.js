@@ -41,7 +41,8 @@ function contactWeeklySlot(contact) {
 }
 
 function contactWeeklyReminderEnabled(contact) {
-  return contact?.weeklyReminderEnabled !== false;
+  // Opt-in only: a missing field (old record) means OFF, never ON.
+  return contact?.weeklyReminderEnabled === true;
 }
 
 function contactCrossingSlot(contact) {
